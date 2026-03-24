@@ -1,5 +1,6 @@
 import anthropic
 import json
+from rag import add_entry_to_db, search_entries, rebuild_db, get_entry_count
 from datetime import datetime
 
 client = anthropic.Anthropic()
@@ -86,6 +87,7 @@ while True:
 
         entries.append(entry)
         save_entries(entries)
+        add_entry_to_db(entry, len(entries) - 1)
 
         print(f"\nEntry saved! Parsed into these categories:")
         for cat, detail in categories.items():
@@ -137,25 +139,34 @@ Be factual. Cite who reported what and when. Do not speculate beyond what the en
             print("No entries yet.\n")
         else:
             question = input("What do you want to know? ")
-            entries_text = ""
-            for e in entries:
-                entries_text += f"\n[{e['timestamp']}] {e['reporter']}:\n"
-                entries_text += f"  Raw: {e['raw_text']}\n"
-                for cat, detail in e['categories'].items():
-                    entries_text += f"  {cat}: {detail}\n"
+            print("\nSearching relevant entries...")
+            relevant = search_entries(question)
 
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1024,
-                system="""You are a care log assistant. You answer questions based ONLY on the 
+            if not relevant:
+                print("No relevant entries found.\n")
+            else:
+                entries_text = ""
+                for e in relevant:
+                    entries_text += f"\n[{e['timestamp']}] {e['reporter']}:\n"
+                    entries_text += f"  Raw: {e['raw_text']}\n"
+                    for cat, detail in e['categories'].items():
+                        entries_text += f"  {cat}: {detail}\n"
+
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=1024,
+                    system="""You are a care log assistant. You answer questions based ONLY on the 
 log entries provided. Always note who reported what and when. If perspectives 
 conflict, highlight the difference — don't pick a side. This is important for 
 medical accuracy.""",
-                messages=[
-                    {"role": "user", "content": f"Here are the care log entries:\n{entries_text}\n\nQuestion: {question}"}
-                ]
-            )
-            print(f"\n{response.content[0].text}\n")
+                    messages=[
+                        {"role": "user", "content": f"Here are the relevant care log entries:\n{entries_text}\n\nQuestion: {question}"}
+                    ]
+                )
+                print(f"\n{response.content[0].text}\n")
 
+    elif command == "rebuild":
+        rebuild_db(entries)
+        print()
     else:
-            print("Commands: log, view, summary, ask, quit\n")
+            print("Commands: log, view, summary, ask, rebuild, quit\n")
