@@ -39,6 +39,7 @@ class AskQuestion(BaseModel):
 class SummaryRequest(BaseModel):
     start_date: str = ""
     end_date: str = ""
+    length: str = "long"
 
 # GET all entries
 @app.get("/api/entries")
@@ -140,10 +141,18 @@ def generate_summary(req: SummaryRequest):
         for cat, detail in e['categories'].items():
             entries_text += f"  {cat}: {detail}\n"
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2048,
-        system="""You are preparing a factual care summary for a doctor's visit.
+    if req.length == "short":
+        system_prompt = """You are preparing a brief care summary for a doctor's visit.
+Your job is to RELAY information, not to diagnose or interpret.
+Create a SHORT summary (5-8 sentences max) that covers:
+- Key trends or patterns across reporters
+- Any notable incidents with dates
+- Where the patient's self-reports differ from caregiver observations
+Be direct and concise. No headers or sections — just a tight paragraph.
+Do NOT diagnose or use clinical terminology."""
+        max_tok = 512
+    else:
+        system_prompt = """You are preparing a factual care summary for a doctor's visit.
 Your job is to RELAY information from the log entries, not to diagnose or interpret.
 Based on the log entries provided, create a structured briefing that includes:
 1. OVERVIEW: A 2-3 sentence factual snapshot of what has been reported recently and by whom.
@@ -153,7 +162,13 @@ Based on the log entries provided, create a structured briefing that includes:
 5. NOTABLE EVENTS: Any specific incidents mentioned (falls, missed medications, confusion episodes, etc.) with dates and who reported them.
 Do NOT diagnose, suggest conditions, or use clinical terminology. Do NOT speculate about causes.
 Simply relay what each person reported, when they reported it, and where accounts differ.
-The doctor will draw their own conclusions.""",
+The doctor will draw their own conclusions."""
+        max_tok = 2048
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=max_tok,
+        system=system_prompt,
         messages=[
             {"role": "user", "content": f"Here are all care log entries:\n{entries_text}\n\nPlease generate a doctor visit summary."}
         ]

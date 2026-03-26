@@ -9,6 +9,7 @@ import {
   CalendarDays,
   Plus,
   X,
+  Filter,
 } from "lucide-react";
 import "./App.css";
 
@@ -47,10 +48,13 @@ const CATEGORY_STYLES = {
   other: "tag-other",
 };
 
-function CategoryTag({ category }) {
+function CategoryTag({ category, onClick, active }) {
   const cls = CATEGORY_STYLES[category] || CATEGORY_STYLES.other;
   return (
-    <span className={`category-tag ${cls}`}>
+    <span
+      className={`category-tag clickable ${cls} ${active ? "tag-active" : ""}`}
+      onClick={onClick}
+    >
       {category.replace("_", " ")}
     </span>
   );
@@ -95,11 +99,13 @@ function App() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [summary, setSummary] = useState("");
+  const [summaryLength, setSummaryLength] = useState("long");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [newReporterName, setNewReporterName] = useState("");
   const [showAddReporter, setShowAddReporter] = useState(false);
+  const [filterCategory, setFilterCategory] = useState(null);
 
   useEffect(() => {
     localStorage.setItem("carelog-reporters", JSON.stringify(reporters));
@@ -191,7 +197,11 @@ function App() {
       const res = await fetch(`${API}/summary`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ start_date: startDate, end_date: endDate }),
+        body: JSON.stringify({
+          start_date: startDate,
+          end_date: endDate,
+          length: summaryLength,
+        }),
       });
       const data = await res.json();
       setSummary(data.summary);
@@ -201,7 +211,11 @@ function App() {
     setLoading(false);
   };
 
-  const groupedEntries = entries
+  const filteredEntries = filterCategory
+    ? entries.filter((e) => e.categories && filterCategory in e.categories)
+    : entries;
+
+  const groupedEntries = filteredEntries
     .slice()
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
     .reduce((groups, entry) => {
@@ -210,6 +224,10 @@ function App() {
       groups[date].push(entry);
       return groups;
     }, {});
+
+  const filterCount = filterCategory
+    ? entries.filter((e) => e.categories && filterCategory in e.categories).length
+    : 0;
 
   const patientEntries = entries
     .filter((e) => ["patient", "dad", "mark"].includes(e.reporter.toLowerCase()))
@@ -226,10 +244,13 @@ function App() {
     <div className="app" style={accentStyle}>
       <header className="header">
         <div className="header-left">
-          <div className="logo">CL</div>
           <div>
-            <h1>CareLog</h1>
-            <p className="subtitle">Mark&rsquo;s care team</p>
+            <h1 className="brand-title">
+              <span className="brand-hey">I Said Hey!</span>
+              <span className="brand-dots">...</span>
+              <span className="brand-whats">What&rsquo;s Going On?</span>
+            </h1>
+            <p className="subtitle">A journal to keep track of what&rsquo;s going on with Mark</p>
           </div>
         </div>
         <div className="header-right">
@@ -355,11 +376,40 @@ function App() {
               </div>
             </div>
 
+            {filterCategory && (
+              <div className="filter-bar">
+                <div className="filter-bar-left">
+                  <Filter size={13} />
+                  <span>
+                    Showing <strong>{filterCount}</strong> entries with
+                  </span>
+                  <CategoryTag
+                    category={filterCategory}
+                    onClick={() => {}}
+                    active
+                  />
+                </div>
+                <button
+                  className="filter-clear"
+                  onClick={() => setFilterCategory(null)}
+                >
+                  <X size={12} />
+                  Clear filter
+                </button>
+              </div>
+            )}
+
             <div className="timeline">
-              {Object.keys(groupedEntries).length === 0 && (
+              {Object.keys(groupedEntries).length === 0 && !filterCategory && (
                 <div className="empty-state">
                   <CalendarDays size={48} className="empty-state-icon" />
                   <p>No entries yet. Add your first observation above.</p>
+                </div>
+              )}
+              {Object.keys(groupedEntries).length === 0 && filterCategory && (
+                <div className="empty-state">
+                  <Filter size={48} className="empty-state-icon" />
+                  <p>No entries match this filter.</p>
                 </div>
               )}
               {Object.entries(groupedEntries).map(([date, dayEntries]) => (
@@ -392,7 +442,16 @@ function App() {
                         <p className="entry-text">{entry.raw_text}</p>
                         <div className="tags">
                           {Object.keys(entry.categories || {}).map((cat) => (
-                            <CategoryTag key={cat} category={cat} />
+                            <CategoryTag
+                              key={cat}
+                              category={cat}
+                              active={filterCategory === cat}
+                              onClick={() =>
+                                setFilterCategory(
+                                  filterCategory === cat ? null : cat
+                                )
+                              }
+                            />
                           ))}
                         </div>
                       </div>
@@ -489,6 +548,23 @@ function App() {
                   onChange={(e) => setEndDate(e.target.value)}
                 />
               </div>
+
+              <p className="form-label">Summary length</p>
+              <div className="length-toggle">
+                <button
+                  className={`length-btn ${summaryLength === "short" ? "active" : ""}`}
+                  onClick={() => setSummaryLength("short")}
+                >
+                  Short
+                </button>
+                <button
+                  className={`length-btn ${summaryLength === "long" ? "active" : ""}`}
+                  onClick={() => setSummaryLength("long")}
+                >
+                  Detailed
+                </button>
+              </div>
+
               <button
                 className="btn-primary"
                 onClick={getSummary}
@@ -499,7 +575,7 @@ function App() {
                 ) : (
                   <FileText size={14} />
                 )}
-                Generate summary for doctor
+                Generate {summaryLength === "short" ? "quick" : "detailed"} summary
               </button>
             </div>
 
@@ -507,7 +583,12 @@ function App() {
               <div className="card summary-result">
                 <div className="answer-header">
                   <div className="answer-icon">AI</div>
-                  <span className="answer-label">Doctor Summary</span>
+                  <span className="answer-label">
+                    Doctor Summary
+                    <span className="summary-length-badge">
+                      {summaryLength === "short" ? "quick" : "detailed"}
+                    </span>
+                  </span>
                 </div>
                 <div className="summary-text">{summary}</div>
               </div>
