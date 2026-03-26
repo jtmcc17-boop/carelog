@@ -1,0 +1,458 @@
+import { useState, useEffect } from "react";
+import {
+  Send,
+  FileText,
+  MessageCircle,
+  ClipboardList,
+  BookHeart,
+  Loader2,
+  Sparkles,
+  CalendarDays,
+} from "lucide-react";
+import "./App.css";
+
+const API = "http://localhost:8000/api";
+
+const REPORTERS = ["Mom", "Jack", "Nurse Amy", "Nurse Beth", "PT Mike"];
+
+const CATEGORY_STYLES = {
+  mood: "tag-mood",
+  cognition: "tag-cognition",
+  medication: "tag-medication",
+  meals: "tag-meals",
+  physical_activity: "tag-physical_activity",
+  sleep: "tag-sleep",
+  incidents: "tag-incidents",
+  social: "tag-social",
+  other: "tag-other",
+};
+
+const AVATAR_COLORS = {
+  Mom: { bg: "rgba(104,211,145,0.15)", text: "#68d391", border: "rgba(104,211,145,0.25)" },
+  Dad: { bg: "rgba(99,179,237,0.15)", text: "#63b3ed", border: "rgba(99,179,237,0.25)" },
+  Patient: { bg: "rgba(99,179,237,0.15)", text: "#63b3ed", border: "rgba(99,179,237,0.25)" },
+  Mark: { bg: "rgba(99,179,237,0.15)", text: "#63b3ed", border: "rgba(99,179,237,0.25)" },
+  Jack: { bg: "rgba(246,173,85,0.15)", text: "#f6ad55", border: "rgba(246,173,85,0.25)" },
+  "Nurse Amy": { bg: "rgba(246,135,179,0.15)", text: "#f687b3", border: "rgba(246,135,179,0.25)" },
+  "Nurse Beth": { bg: "rgba(183,148,244,0.15)", text: "#b794f4", border: "rgba(183,148,244,0.25)" },
+  "PT Mike": { bg: "rgba(252,129,129,0.15)", text: "#fc8181", border: "rgba(252,129,129,0.25)" },
+};
+
+function CategoryTag({ category }) {
+  const cls = CATEGORY_STYLES[category] || CATEGORY_STYLES.other;
+  return (
+    <span className={`category-tag ${cls}`}>
+      {category.replace("_", " ")}
+    </span>
+  );
+}
+
+function ReporterAvatar({ name }) {
+  const c = AVATAR_COLORS[name] || { bg: "rgba(255,255,255,0.08)", text: "#8b95a5", border: "rgba(255,255,255,0.12)" };
+  const initials = name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2);
+  return (
+    <div
+      className="reporter-avatar"
+      style={{ background: c.bg, color: c.text, borderColor: c.border }}
+    >
+      {initials}
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = useState("timeline");
+  const [entries, setEntries] = useState([]);
+  const [reporter, setReporter] = useState("Mom");
+  const [rawText, setRawText] = useState("");
+  const [journalText, setJournalText] = useState("");
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [summary, setSummary] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/entries`)
+      .then((r) => r.json())
+      .then(setEntries)
+      .catch(console.error);
+  }, []);
+
+  const submitEntry = async (reporterName, text) => {
+    if (!text.trim()) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/entries`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reporter: reporterName, raw_text: text }),
+      });
+      const newEntry = await res.json();
+      setEntries((prev) => [...prev, newEntry]);
+      setRawText("");
+      setJournalText("");
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  const askQuestion = async () => {
+    if (!question.trim()) return;
+    setLoading(true);
+    setAnswer("");
+    try {
+      const res = await fetch(`${API}/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      const data = await res.json();
+      setAnswer(data.answer);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  const getSummary = async () => {
+    setLoading(true);
+    setSummary("");
+    try {
+      const res = await fetch(`${API}/summary`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start_date: startDate, end_date: endDate }),
+      });
+      const data = await res.json();
+      setSummary(data.summary);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  const groupedEntries = entries
+    .slice()
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    .reduce((groups, entry) => {
+      const date = entry.timestamp.slice(0, 10);
+      if (!groups[date]) groups[date] = [];
+      groups[date].push(entry);
+      return groups;
+    }, {});
+
+  const patientEntries = entries
+    .filter((e) => ["patient", "dad", "mark"].includes(e.reporter.toLowerCase()))
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+  const tabs = [
+    { id: "timeline", label: "Timeline", icon: <ClipboardList size={15} /> },
+    { id: "journal", label: "Journal", icon: <BookHeart size={15} /> },
+    { id: "summary", label: "Summary", icon: <FileText size={15} /> },
+    { id: "ask", label: "Ask AI", icon: <Sparkles size={15} /> },
+  ];
+
+  return (
+    <div className="app">
+      <header className="header">
+        <div className="header-left">
+          <div className="logo">CL</div>
+          <div>
+            <h1>CareLog</h1>
+            <p className="subtitle">Mark&rsquo;s care team</p>
+          </div>
+        </div>
+        <div className="header-right">
+          <span className="badge badge-blue">{entries.length} entries</span>
+          <span className="badge badge-green">
+            {new Set(entries.map((e) => e.reporter)).size} reporters
+          </span>
+        </div>
+      </header>
+
+      <nav className="tabs">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            className={`tab ${tab === t.id ? "active" : ""}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.icon}
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      <main className="content">
+        {/* ── Timeline ─────────────────────── */}
+        {tab === "timeline" && (
+          <div>
+            <div className="card entry-form">
+              <p className="form-label">New entry</p>
+              <div className="reporter-chips">
+                {REPORTERS.map((r) => (
+                  <button
+                    key={r}
+                    className={`chip ${reporter === r ? "active" : ""}`}
+                    onClick={() => setReporter(r)}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                placeholder="Describe what happened in plain language..."
+                value={rawText}
+                onChange={(e) => setRawText(e.target.value)}
+                rows={3}
+              />
+              <div className="form-actions">
+                <button
+                  className="btn-primary"
+                  onClick={() => submitEntry(reporter, rawText)}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <Loader2 size={14} className="spin" />
+                  ) : (
+                    <Send size={14} />
+                  )}
+                  Save entry
+                </button>
+              </div>
+            </div>
+
+            <div className="timeline">
+              {Object.keys(groupedEntries).length === 0 && (
+                <div className="empty-state">
+                  <CalendarDays size={48} className="empty-state-icon" />
+                  <p>No entries yet. Add your first observation above.</p>
+                </div>
+              )}
+              {Object.entries(groupedEntries).map(([date, dayEntries]) => (
+                <div key={date}>
+                  <p className="date-label">{formatDate(date)}</p>
+                  {dayEntries.map((entry, i) => (
+                    <div className="timeline-entry" key={i}>
+                      <div className="timeline-left">
+                        <ReporterAvatar name={entry.reporter} />
+                        {i < dayEntries.length - 1 && (
+                          <div className="timeline-line" />
+                        )}
+                      </div>
+                      <div className="card timeline-card">
+                        <div className="timeline-header">
+                          <div className="reporter-name">
+                            {entry.reporter}
+                            {["Dad", "Patient", "Mark"].includes(
+                              entry.reporter
+                            ) && (
+                              <span className="self-report-badge">
+                                self-report
+                              </span>
+                            )}
+                          </div>
+                          <span className="entry-time">
+                            {entry.timestamp}
+                          </span>
+                        </div>
+                        <p className="entry-text">{entry.raw_text}</p>
+                        <div className="tags">
+                          {Object.keys(entry.categories || {}).map((cat) => (
+                            <CategoryTag key={cat} category={cat} />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Journal ──────────────────────── */}
+        {tab === "journal" && (
+          <div>
+            <div className="card">
+              <h3>How are you feeling today?</h3>
+              <p className="hint">
+                This is your private space. Write whatever is on your mind.
+              </p>
+              <textarea
+                placeholder="I'm feeling..."
+                value={journalText}
+                onChange={(e) => setJournalText(e.target.value)}
+                rows={4}
+              />
+              <div className="form-actions">
+                <button
+                  className="btn-primary"
+                  onClick={() => submitEntry("Patient", journalText)}
+                  disabled={loading}
+                >
+                  {loading && <Loader2 size={14} className="spin" />}
+                  <BookHeart size={14} />
+                  Save to journal
+                </button>
+              </div>
+            </div>
+
+            <h3 className="section-title">Your entries</h3>
+            <div className="journal-timeline">
+              {patientEntries.length === 0 ? (
+                <p className="hint">No journal entries yet.</p>
+              ) : (
+                patientEntries.map((e, i) => (
+                  <div key={i} className="journal-entry">
+                    <p className="date-small">
+                      {formatDate(e.timestamp.slice(0, 10))}
+                    </p>
+                    <p className="entry-text">{e.raw_text}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Summary ──────────────────────── */}
+        {tab === "summary" && (
+          <div>
+            <div className="stats-grid">
+              <div className="stat-card">
+                <p className="stat-label">Total entries</p>
+                <p className="stat-value">{entries.length}</p>
+              </div>
+              <div className="stat-card">
+                <p className="stat-label">Date range</p>
+                <p className="stat-value-sm">
+                  {entries.length > 0
+                    ? `${entries[0].timestamp.slice(0, 10)} — ${entries[entries.length - 1].timestamp.slice(0, 10)}`
+                    : "—"}
+                </p>
+              </div>
+              <div className="stat-card">
+                <p className="stat-label">Reporters</p>
+                <p className="stat-value">
+                  {new Set(entries.map((e) => e.reporter)).size}
+                </p>
+              </div>
+            </div>
+
+            <div className="card">
+              <p className="form-label">Filter by date range (optional)</p>
+              <div className="date-filters">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+                <span className="date-separator">to</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
+              <button
+                className="btn-primary"
+                onClick={getSummary}
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 size={14} className="spin" />
+                ) : (
+                  <FileText size={14} />
+                )}
+                Generate summary for doctor
+              </button>
+            </div>
+
+            {summary && (
+              <div className="card summary-result">
+                <div className="answer-header">
+                  <div className="answer-icon">AI</div>
+                  <span className="answer-label">Doctor Summary</span>
+                </div>
+                <div className="summary-text">{summary}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Ask AI ───────────────────────── */}
+        {tab === "ask" && (
+          <div>
+            <div className="card">
+              <div className="ask-input">
+                <input
+                  type="text"
+                  placeholder="Ask anything about Mark's care log..."
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && askQuestion()}
+                />
+                <button
+                  className="btn-primary"
+                  onClick={askQuestion}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <Loader2 size={14} className="spin" />
+                  ) : (
+                    <Sparkles size={14} />
+                  )}
+                  Ask
+                </button>
+              </div>
+              <div className="suggested-questions">
+                {[
+                  "Tell me about the fall",
+                  "How is medication compliance?",
+                  "Where do self-reports differ?",
+                ].map((q) => (
+                  <button
+                    key={q}
+                    className="chip-outline"
+                    onClick={() => setQuestion(q)}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {answer && (
+              <div className="card answer-card">
+                <div className="answer-header">
+                  <div className="answer-icon">AI</div>
+                  <span className="answer-label">Answer</span>
+                </div>
+                <div className="answer-text">{answer}</div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function formatDate(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export default App;
