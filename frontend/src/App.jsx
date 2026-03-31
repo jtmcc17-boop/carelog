@@ -42,16 +42,16 @@ function authHeaders(token) {
 /* ── Color System ────────────────────────── */
 
 const REPORTER_PALETTE = [
-  { hue: 152, accent: "#68d391", rgb: "104,211,145" },
-  { hue: 28,  accent: "#f6ad55", rgb: "246,173,85" },
-  { hue: 330, accent: "#f687b3", rgb: "246,135,179" },
-  { hue: 270, accent: "#b794f4", rgb: "183,148,244" },
-  { hue: 0,   accent: "#fc8181", rgb: "252,129,129" },
-  { hue: 207, accent: "#63b3ed", rgb: "99,179,237" },
-  { hue: 185, accent: "#76e4f7", rgb: "118,228,247" },
-  { hue: 45,  accent: "#fbd38d", rgb: "251,211,141" },
-  { hue: 290, accent: "#d6bcfa", rgb: "214,188,250" },
-  { hue: 15,  accent: "#feb2b2", rgb: "254,178,178" },
+  { hue: 207, accent: "#3182ce", rgb: "49,130,206" },
+  { hue: 28,  accent: "#c05621", rgb: "192,86,33" },
+  { hue: 330, accent: "#b83280", rgb: "184,50,128" },
+  { hue: 270, accent: "#6b46c1", rgb: "107,70,193" },
+  { hue: 0,   accent: "#c53030", rgb: "197,48,48" },
+  { hue: 185, accent: "#0987a0", rgb: "9,135,160" },
+  { hue: 45,  accent: "#b7791f", rgb: "183,121,31" },
+  { hue: 290, accent: "#805ad5", rgb: "128,90,213" },
+  { hue: 15,  accent: "#c05621", rgb: "192,86,33" },
+  { hue: 340, accent: "#d53f8c", rgb: "213,63,140" },
 ];
 
 function getReporterColor(name, reporters) {
@@ -254,10 +254,11 @@ function MainApp() {
   const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [filterCategory, setFilterCategory] = useState(null);
-  const [filterReporter, setFilterReporter] = useState(null);
+  const [filterReporters, setFilterReporters] = useState([]);
 
   // Daily check-in state
   const [showCheckIn, setShowCheckIn] = useState(false);
+  const [showQuickCheckIn, setShowQuickCheckIn] = useState(false);
   const [mentalRating, setMentalRating] = useState(null);
   const [mentalTags, setMentalTags] = useState([]);
   const [physicalRating, setPhysicalRating] = useState(null);
@@ -307,12 +308,7 @@ function MainApp() {
     [user.display_name, allReporters]
   );
 
-  const accentStyle = useMemo(() => ({
-    "--accent": activeColor.accent,
-    "--accent-glow": `rgba(${activeColor.rgb},0.15)`,
-    "--accent-glow-strong": `rgba(${activeColor.rgb},0.25)`,
-    "--border-focus": `rgba(${activeColor.rgb},0.4)`,
-  }), [activeColor]);
+  const accentStyle = useMemo(() => ({}), []);
 
   // ── Entry Actions ──────────────────────────
 
@@ -367,6 +363,26 @@ function MainApp() {
     setPhysicalRating(null);
     setPhysicalTags([]);
     setShowCheckIn(false);
+  };
+
+  const submitQuickCheckIn = async () => {
+    const parts = [];
+    if (mentalRating) {
+      parts.push(`Mental: ${mentalRating}/7`);
+      if (mentalTags.length) parts.push(`Feeling: ${mentalTags.join(", ")}`);
+    }
+    if (physicalRating) {
+      parts.push(`Physical: ${physicalRating}/7`);
+      if (physicalTags.length) parts.push(`Body: ${physicalTags.join(", ")}`);
+    }
+    if (journalText.trim()) parts.push(journalText.trim());
+    if (!parts.length) return;
+    await submitEntry(parts.join("\n"));
+    setMentalRating(null);
+    setMentalTags([]);
+    setPhysicalRating(null);
+    setPhysicalTags([]);
+    setShowQuickCheckIn(false);
   };
 
   // ── AI Actions ────────────────────────────
@@ -473,7 +489,7 @@ function MainApp() {
   // ── Computed Data ─────────────────────────
 
   const filteredEntries = entries.filter((e) => {
-    if (filterReporter && e.reporter !== filterReporter) return false;
+    if (filterReporters.length > 0 && !filterReporters.includes(e.reporter)) return false;
     if (filterCategory && !(e.categories && filterCategory in e.categories)) return false;
     return true;
   });
@@ -496,16 +512,20 @@ function MainApp() {
     .filter((e) => e.reporter.toLowerCase() === user.display_name.toLowerCase() && isPatient)
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const checkinCutoff = new Date(now);
+  checkinCutoff.setHours(6, 0, 0, 0);
+  if (now < checkinCutoff) checkinCutoff.setDate(checkinCutoff.getDate() - 1);
+  const todayStr = checkinCutoff.toISOString().slice(0, 10);
   const todayCheckedIn = entries.some(
-    (e) => e.timestamp === todayStr && e.reporter === user.display_name && e.raw_text.startsWith("Daily Check-In:")
+    (e) => e.timestamp >= todayStr && e.reporter === user.display_name && e.raw_text.startsWith("Daily Check-In:")
   );
 
   const tabs = [
-    { id: "timeline", label: "Notes", icon: <ClipboardList size={15} />, show: true },
+    { id: "timeline", label: "Thread", icon: <ClipboardList size={15} />, show: true },
+    { id: "summary", label: "Recap", icon: <FileText size={15} />, show: !isPatient },
+    { id: "ask", label: "Ask Questions", icon: <Sparkles size={15} />, show: !isPatient },
     { id: "visits", label: "Doctor Visits", icon: <Stethoscope size={15} />, show: !isPatient },
-    { id: "summary", label: "Summary", icon: <FileText size={15} />, show: !isPatient },
-    { id: "ask", label: "Ask AI", icon: <Sparkles size={15} />, show: !isPatient },
   ].filter((t) => t.show);
 
   const ROLE_ICON = { admin: <Shield size={13} />, user: <UserIcon size={13} />, patient: <Heart size={13} /> };
@@ -515,12 +535,12 @@ function MainApp() {
       <header className="header">
         <div className="header-left">
           <div>
-            <h1 className="brand-title">
+            <h1 className="brand-title" onClick={() => setTab("timeline")} style={{ cursor: "pointer" }}>
               <span className="brand-hey">I Said Hey!</span>
               <span className="brand-dots">...</span>
               <span className="brand-whats">What&rsquo;s Going On?</span>
             </h1>
-            <p className="subtitle">{circle?.name || "Care Circle"}</p>
+            <p className="subtitle">{patientName}&rsquo;s CareThread</p>
           </div>
         </div>
         <div className="header-right">
@@ -541,7 +561,7 @@ function MainApp() {
       {isPatient && (
         <button
           className={`btn-journal-hero ${tab === "journal" ? "active" : ""}`}
-          onClick={() => setTab("journal")}
+          onClick={() => { setTab("journal"); if (!todayCheckedIn) setShowCheckIn(true); }}
         >
           <BookHeart size={22} />
           <div className="journal-hero-text">
@@ -563,33 +583,8 @@ function MainApp() {
         {/* ── Notes / Timeline ──────────────── */}
         {tab === "timeline" && (
           <div>
-            {allReporters.length > 0 && (
-              <div className="reporter-filter-bar">
-                <button
-                  className={`reporter-filter-chip ${!filterReporter ? "active" : ""}`}
-                  onClick={() => setFilterReporter(null)}
-                >
-                  All
-                </button>
-                {allReporters.map((name) => {
-                  const pal = getReporterColor(name, allReporters);
-                  const isActive = filterReporter === name;
-                  return (
-                    <button
-                      key={name}
-                      className={`reporter-filter-chip ${isActive ? "active" : ""}`}
-                      onClick={() => setFilterReporter(isActive ? null : name)}
-                      style={isActive ? { background: `rgba(${pal.rgb},0.15)`, color: pal.accent, borderColor: `rgba(${pal.rgb},0.3)` } : undefined}
-                    >
-                      {name}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="card entry-form">
-              <p className="form-label">New entry as <strong>{user.display_name}</strong></p>
+            <div className="entry-section">
+              <p className="entry-as-label">New entry as <strong className="entry-as-name">{user.display_name}</strong></p>
               <textarea
                 placeholder="Describe what happened in plain language... (Enter to save, Shift+Enter for new line)"
                 value={rawText}
@@ -597,29 +592,34 @@ function MainApp() {
                 onKeyDown={(e) => handleTextareaKeyDown(e, rawText)}
                 rows={3}
               />
-              <div className="form-actions">
+              <div className="entry-bottom-row">
+                <div className="reporter-filter-bar">
+                  {allReporters.map((name) => {
+                    const pal = getReporterColor(name, allReporters);
+                    const isActive = filterReporters.includes(name);
+                    return (
+                      <button
+                        key={name}
+                        className={`reporter-filter-chip ${isActive ? "active" : ""}`}
+                        onClick={() => setFilterReporters(isActive ? filterReporters.filter((r) => r !== name) : [...filterReporters, name])}
+                        style={isActive ? { background: `rgba(${pal.rgb},0.15)`, color: pal.accent, borderColor: `rgba(${pal.rgb},0.3)` } : undefined}
+                      >
+                        {name}
+                        {isActive && <X size={11} />}
+                      </button>
+                    );
+                  })}
+                </div>
                 <button className="btn-primary" onClick={() => submitEntry(rawText)} disabled={loading}>
                   {loading ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
                   Save entry
                 </button>
               </div>
-            </div>
-
-            {(filterCategory || filterReporter) && (
-              <div className="filter-bar">
-                <div className="filter-bar-left">
-                  <Filter size={13} />
-                  <span>
-                    Showing <strong>{filteredEntries.length}</strong> entries
-                    {filterReporter && <> by <strong>{filterReporter}</strong></>}
-                    {filterCategory && <> with <CategoryTag category={filterCategory} onClick={() => {}} active /></>}
-                  </span>
-                </div>
-                <button className="filter-clear" onClick={() => { setFilterCategory(null); setFilterReporter(null); }}>
-                  <X size={12} /> Clear filter
-                </button>
+              <div className="entry-count">
+                {filteredEntries.length} {filteredEntries.length === 1 ? "entry" : "entries"}
+                {filterCategory && <> in <CategoryTag category={filterCategory} onClick={() => setFilterCategory(null)} active /></>}
               </div>
-            )}
+            </div>
 
             <div className="timeline">
               {Object.keys(groupedEntries).length === 0 && !filterCategory && (
@@ -687,52 +687,56 @@ function MainApp() {
             )}
 
             {!todayCheckedIn && showCheckIn && (
-              <div className="card checkin-card">
-                <div className="checkin-section">
-                  <h3 className="checkin-question">How are you feeling <em>mentally</em> today?</h3>
-                  <div className="rating-row">
-                    {[1,2,3,4,5,6,7].map((n) => (
-                      <button key={n} className={`rating-btn ${mentalRating === n ? "active" : ""}`} onClick={() => setMentalRating(n)}>{n}</button>
-                    ))}
+              <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowCheckIn(false); }}>
+                <div className="modal-content">
+                  <div className="checkin-card">
+                    <div className="checkin-section">
+                      <h3 className="checkin-question">How are you feeling <em>mentally</em> today?</h3>
+                      <div className="rating-row">
+                        {[1,2,3,4,5,6,7].map((n) => (
+                          <button key={n} className={`rating-btn ${mentalRating === n ? "active" : ""}`} onClick={() => setMentalRating(n)}>{n}</button>
+                        ))}
+                      </div>
+                      <div className="rating-labels"><span>Not great</span><span>Great</span></div>
+                      <div className="checkin-tags">
+                        {["Happy","Normal","Calm","Confused","Foggy","Anxious","Sad","Irritable","Forgetful","Restless","Hopeful","Overwhelmed"].map((t) => (
+                          <button key={t} className={`checkin-tag ${mentalTags.includes(t) ? "active" : ""}`} onClick={() => toggleTag(mentalTags, setMentalTags, t)}>{t}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="checkin-divider" />
+                    <div className="checkin-section">
+                      <h3 className="checkin-question">How are you feeling <em>physically</em> today?</h3>
+                      <div className="rating-row">
+                        {[1,2,3,4,5,6,7].map((n) => (
+                          <button key={n} className={`rating-btn ${physicalRating === n ? "active" : ""}`} onClick={() => setPhysicalRating(n)}>{n}</button>
+                        ))}
+                      </div>
+                      <div className="rating-labels"><span>Not great</span><span>Great</span></div>
+                      <div className="checkin-tags">
+                        {["Normal","Strong","Weak","Achy","Stiff","Tired","Energetic","Dizzy","Nauseous","Shaky","Well-Rested","Sore"].map((t) => (
+                          <button key={t} className={`checkin-tag ${physicalTags.includes(t) ? "active" : ""}`} onClick={() => toggleTag(physicalTags, setPhysicalTags, t)}>{t}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="checkin-divider" />
+                    <div className="checkin-section">
+                      <h3 className="checkin-question">Anything else on your mind?</h3>
+                      <textarea placeholder="Write whatever you'd like..." value={journalText} onChange={(e) => setJournalText(e.target.value)} rows={4} />
+                    </div>
+                    <div className="checkin-actions">
+                      <button className="chip" onClick={() => setShowCheckIn(false)}>Cancel</button>
+                      <button className="btn-primary btn-checkin-save" onClick={submitCheckIn} disabled={loading || (!mentalRating && !physicalRating && !journalText.trim())}>
+                        {loading ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+                        Save Check-In
+                      </button>
+                    </div>
                   </div>
-                  <div className="rating-labels"><span>Not great</span><span>Great</span></div>
-                  <div className="checkin-tags">
-                    {["Happy","Normal","Calm","Confused","Foggy","Anxious","Sad","Irritable","Forgetful","Restless","Hopeful","Overwhelmed"].map((t) => (
-                      <button key={t} className={`checkin-tag ${mentalTags.includes(t) ? "active" : ""}`} onClick={() => toggleTag(mentalTags, setMentalTags, t)}>{t}</button>
-                    ))}
-                  </div>
-                </div>
-                <div className="checkin-divider" />
-                <div className="checkin-section">
-                  <h3 className="checkin-question">How are you feeling <em>physically</em> today?</h3>
-                  <div className="rating-row">
-                    {[1,2,3,4,5,6,7].map((n) => (
-                      <button key={n} className={`rating-btn ${physicalRating === n ? "active" : ""}`} onClick={() => setPhysicalRating(n)}>{n}</button>
-                    ))}
-                  </div>
-                  <div className="rating-labels"><span>Not great</span><span>Great</span></div>
-                  <div className="checkin-tags">
-                    {["Normal","Strong","Weak","Achy","Stiff","Tired","Energetic","Dizzy","Nauseous","Shaky","Well-Rested","Sore"].map((t) => (
-                      <button key={t} className={`checkin-tag ${physicalTags.includes(t) ? "active" : ""}`} onClick={() => toggleTag(physicalTags, setPhysicalTags, t)}>{t}</button>
-                    ))}
-                  </div>
-                </div>
-                <div className="checkin-divider" />
-                <div className="checkin-section">
-                  <h3 className="checkin-question">Anything else on your mind?</h3>
-                  <textarea placeholder="Write whatever you'd like..." value={journalText} onChange={(e) => setJournalText(e.target.value)} rows={4} />
-                </div>
-                <div className="checkin-actions">
-                  <button className="chip" onClick={() => setShowCheckIn(false)}>Cancel</button>
-                  <button className="btn-primary btn-checkin-save" onClick={submitCheckIn} disabled={loading || (!mentalRating && !physicalRating && !journalText.trim())}>
-                    {loading ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
-                    Save Check-In
-                  </button>
                 </div>
               </div>
             )}
 
-            {todayCheckedIn && (
+            {todayCheckedIn && !showQuickCheckIn && (
               <div className="card">
                 <h3>Add a note</h3>
                 <p className="hint">Write anything on your mind — it&rsquo;ll be added to your journal.</p>
@@ -742,6 +746,59 @@ function MainApp() {
                     {loading ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
                     Save to journal
                   </button>
+                  <button className="chip" onClick={() => setShowQuickCheckIn(true)}>
+                    <ClipboardList size={14} /> Clickable Entry
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {todayCheckedIn && showQuickCheckIn && (
+              <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) { setShowQuickCheckIn(false); setMentalRating(null); setMentalTags([]); setPhysicalRating(null); setPhysicalTags([]); } }}>
+                <div className="modal-content">
+                  <div className="checkin-card">
+                    <div className="checkin-section">
+                      <h3 className="checkin-question">How are you feeling <em>mentally</em>?</h3>
+                      <div className="rating-row">
+                        {[1,2,3,4,5,6,7].map((n) => (
+                          <button key={n} className={`rating-btn ${mentalRating === n ? "active" : ""}`} onClick={() => setMentalRating(n)}>{n}</button>
+                        ))}
+                      </div>
+                      <div className="rating-labels"><span>Not great</span><span>Great</span></div>
+                      <div className="checkin-tags">
+                        {["Happy","Normal","Calm","Confused","Foggy","Anxious","Sad","Irritable","Forgetful","Restless","Hopeful","Overwhelmed"].map((t) => (
+                          <button key={t} className={`checkin-tag ${mentalTags.includes(t) ? "active" : ""}`} onClick={() => toggleTag(mentalTags, setMentalTags, t)}>{t}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="checkin-divider" />
+                    <div className="checkin-section">
+                      <h3 className="checkin-question">How are you feeling <em>physically</em>?</h3>
+                      <div className="rating-row">
+                        {[1,2,3,4,5,6,7].map((n) => (
+                          <button key={n} className={`rating-btn ${physicalRating === n ? "active" : ""}`} onClick={() => setPhysicalRating(n)}>{n}</button>
+                        ))}
+                      </div>
+                      <div className="rating-labels"><span>Not great</span><span>Great</span></div>
+                      <div className="checkin-tags">
+                        {["Normal","Strong","Weak","Achy","Stiff","Tired","Energetic","Dizzy","Nauseous","Shaky","Well-Rested","Sore"].map((t) => (
+                          <button key={t} className={`checkin-tag ${physicalTags.includes(t) ? "active" : ""}`} onClick={() => toggleTag(physicalTags, setPhysicalTags, t)}>{t}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="checkin-divider" />
+                    <div className="checkin-section">
+                      <h3 className="checkin-question">Anything else on your mind?</h3>
+                      <textarea placeholder="Write whatever you'd like..." value={journalText} onChange={(e) => setJournalText(e.target.value)} rows={4} />
+                    </div>
+                    <div className="checkin-actions">
+                      <button className="chip" onClick={() => { setShowQuickCheckIn(false); setMentalRating(null); setMentalTags([]); setPhysicalRating(null); setPhysicalTags([]); }}>Cancel</button>
+                      <button className="btn-primary btn-checkin-save" onClick={submitQuickCheckIn} disabled={loading || (!mentalRating && !physicalRating && !journalText.trim())}>
+                        {loading ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+                        Save Entry
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -768,7 +825,7 @@ function MainApp() {
             <div className="card">
               {visitStep === "idle" && (
                 <div className="visit-start">
-                  <div className="visit-start-icon"><Stethoscope size={32} /></div>
+                  <div className="visit-start-icon"><Stethoscope size={22} /></div>
                   <h3>Record a Doctor Visit</h3>
                   <p className="hint">Tap record and set your device down during the appointment. The conversation will be transcribed automatically.</p>
                   <div className="visit-actions">

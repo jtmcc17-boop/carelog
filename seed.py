@@ -59,7 +59,7 @@ demo_users_data = [
     ("demo_tom", "demo123", "Tom", "user", "son"),
     ("demo_linda", "demo123", "Linda", "user", "wife"),
     ("demo_nurse", "demo123", "Nurse Rachel", "user", "home health aide"),
-    ("demo_margaret", "demo123", "Margaret", "patient", "patient"),
+    ("demo_booboo", "baseball", "Margaret", "patient", "patient"),
 ]
 
 demo_users = {}
@@ -160,6 +160,6 @@ else:
 print("\nDone! Login credentials:")
 print("  Family circle (Mark):     admin / admin123")
 print("  Demo circle (Margaret):   demo_admin / demo123")
-print("  Demo family:              demo_tom / demo_linda / demo_nurse / demo_margaret (all demo123)")
+print("  Demo family:              demo_tom / demo_linda / demo_nurse (all demo123), demo_boobo / baseball")
 
 db.close()
