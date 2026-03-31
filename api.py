@@ -36,6 +36,37 @@ def ensure_journal_public_column():
 
 ensure_journal_public_column()
 
+
+def ensure_demo_booboo_branding():
+    """Legacy demo used patient_name/display_name 'Margaret'; rebrand to Booboo for the demo circle."""
+    from database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        u = db.query(User).filter(User.username == "demo_booboo").first()
+        if not u:
+            return
+        c = db.query(CareCircle).filter(CareCircle.id == u.circle_id).first()
+        if not c:
+            return
+        if u.display_name == "Margaret":
+            u.display_name = "Booboo"
+        if c.patient_name == "Margaret":
+            c.patient_name = "Booboo"
+            c.name = "Booboo's Care Circle"
+        db.query(Entry).filter(
+            Entry.circle_id == c.id,
+            Entry.reporter == "Margaret",
+        ).update({"reporter": "Booboo"}, synchronize_session=False)
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+ensure_demo_booboo_branding()
+
 app = FastAPI()
 
 app.add_middleware(

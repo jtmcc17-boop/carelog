@@ -733,7 +733,7 @@ function MainApp() {
               <span className="brand-dots">...</span>
               <span className="brand-whats">What&rsquo;s Going On?</span>
             </h1>
-            <p className="subtitle">{patientName}&rsquo;s CareThread</p>
+            <p className="subtitle">{patientName}&rsquo;s Care Thread</p>
           </div>
         </div>
         <div className="header-right">

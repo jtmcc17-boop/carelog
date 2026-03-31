@@ -42,24 +42,32 @@ else:
         db.commit()
     print("Admin user already exists.")
 
-# ── Circle 2: Demo (Margaret) ───────────────
+# ── Circle 2: Demo (Booboo) ───────────────
 
-demo_circle = db.query(CareCircle).filter(CareCircle.patient_name == "Margaret").first()
+demo_circle = db.query(CareCircle).filter(CareCircle.patient_name == "Booboo").first()
 if not demo_circle:
-    demo_circle = CareCircle(name="Margaret's Care Circle", patient_name="Margaret")
+    demo_circle = db.query(CareCircle).filter(CareCircle.patient_name == "Margaret").first()
+if not demo_circle:
+    demo_circle = CareCircle(name="Booboo's Care Circle", patient_name="Booboo")
     db.add(demo_circle)
     db.commit()
     db.refresh(demo_circle)
     print(f"\nCreated demo circle: {demo_circle.name} (id={demo_circle.id})")
 else:
     print(f"\nDemo circle already exists: {demo_circle.name} (id={demo_circle.id})")
+    if demo_circle.patient_name == "Margaret":
+        demo_circle.patient_name = "Booboo"
+        demo_circle.name = "Booboo's Care Circle"
+        db.commit()
+        db.refresh(demo_circle)
+        print("  Migrated demo circle label: Margaret → Booboo")
 
 demo_users_data = [
     ("demo_admin", "demo123", "Sarah", "admin", "daughter"),
     ("demo_tom", "demo123", "Tom", "user", "son"),
     ("demo_linda", "demo123", "Linda", "user", "wife"),
     ("demo_nurse", "demo123", "Nurse Rachel", "user", "home health aide"),
-    ("demo_booboo", "baseball", "Margaret", "patient", "patient"),
+    ("demo_booboo", "baseball", "Booboo", "patient", "patient"),
 ]
 
 demo_users = {}
@@ -80,7 +88,21 @@ for uname, pwd, display, role, rel in demo_users_data:
         print(f"  Created demo user: {uname} ({display}, {role})")
     else:
         print(f"  Demo user already exists: {uname}")
-    demo_users[display] = u
+        if uname == "demo_booboo" and u.display_name == "Margaret":
+            u.display_name = "Booboo"
+            db.commit()
+            db.refresh(u)
+            print("  Migrated demo_booboo display name: Margaret → Booboo")
+    demo_users[u.display_name] = u
+
+legacy_reporters = (
+    db.query(Entry)
+    .filter(Entry.circle_id == demo_circle.id, Entry.reporter == "Margaret")
+    .update({"reporter": "Booboo"}, synchronize_session=False)
+)
+if legacy_reporters:
+    db.commit()
+    print(f"  Migrated {legacy_reporters} journal row(s): reporter Margaret → Booboo")
 
 today = datetime.now().date()
 
@@ -92,15 +114,15 @@ else:
         (-14, "Linda", "Mom had a really good morning today. She was humming in the kitchen and even remembered to water her plants without me reminding her. She asked about the grandkids and what they were up to in school.", {"mood": "Good mood, humming and engaged", "cognition": "Remembered to water plants independently", "social": "Asked about grandchildren"}),
         (-13, "Tom", "Visited Mom today. She seemed a bit confused about what day it was but once we got talking she was pretty sharp. We looked through old photos and she remembered most of the people. She did call me David a couple times (that's Dad's name).", {"cognition": "Confused about the day, called Tom by his father's name", "mood": "Engaged during photo activity", "social": "Enjoyed looking through old photos"}),
         (-12, "Nurse Rachel", "Vitals normal. BP 128/82. Weight stable at 142 lbs. Margaret reports sleeping well. Noticed slight unsteadiness when she stood up from the chair — reminded her to use the grab bar. Medication compliance is good, pill organizer was correctly used.", {"medication": "Good compliance, pill organizer used correctly", "physical_activity": "Slight unsteadiness when standing, reminded about grab bar", "sleep": "Reports sleeping well"}),
-        (-11, "Margaret", "Daily Check-In:\nMental: 5/7\nFeeling: Normal, Calm\nPhysical: 4/7\nBody: Stiff, Achy\nKnees were bothering me again today. I sat in the garden for a while and that helped. Linda brought over soup for dinner which was nice.", {"mood": "Calm, normal", "physical_activity": "Knee pain, sat in garden", "meals": "Linda brought soup for dinner", "social": "Linda visited with soup"}),
+        (-11, "Booboo", "Daily Check-In:\nMental: 5/7\nFeeling: Normal, Calm\nPhysical: 4/7\nBody: Stiff, Achy\nKnees were bothering me again today. I sat in the garden for a while and that helped. Linda brought over soup for dinner which was nice.", {"mood": "Calm, normal", "physical_activity": "Knee pain, sat in garden", "meals": "Linda brought soup for dinner", "social": "Linda visited with soup"}),
         (-10, "Sarah", "Called Mom this morning. She sounded good but told me she had already eaten breakfast, and then Linda told me she hadn't — she just forgot she hadn't eaten yet. I reminded Linda to keep an eye on that. Otherwise Mom said she slept great and was planning to watch her shows.", {"cognition": "Told Sarah she had eaten breakfast but hadn't", "meals": "May have skipped breakfast, needs monitoring", "sleep": "Reported sleeping well"}),
         (-9, "Linda", "Rough morning. Margaret woke up disoriented and didn't recognize the bedroom for a few minutes. She was anxious until I turned on the lights and talked her through it. After about 20 minutes she was fine and ate a full breakfast. The rest of the day was normal.", {"cognition": "Woke up disoriented, didn't recognize bedroom", "mood": "Anxious upon waking, settled after 20 minutes", "meals": "Ate full breakfast after settling", "incidents": "Disorientation episode upon waking"}),
-        (-8, "Margaret", "Daily Check-In:\nMental: 4/7\nFeeling: Foggy, Confused\nPhysical: 5/7\nBody: Normal\nI don't remember what happened this morning too well. Linda says I was confused but I feel fine now. Watched my cooking show and made a grocery list.", {"mood": "Foggy and confused earlier, fine later", "cognition": "Doesn't remember morning disorientation episode"}),
+        (-8, "Booboo", "Daily Check-In:\nMental: 4/7\nFeeling: Foggy, Confused\nPhysical: 5/7\nBody: Normal\nI don't remember what happened this morning too well. Linda says I was confused but I feel fine now. Watched my cooking show and made a grocery list.", {"mood": "Foggy and confused earlier, fine later", "cognition": "Doesn't remember morning disorientation episode"}),
         (-7, "Nurse Rachel", "Weekly check-in. BP slightly elevated at 138/88 — will monitor. Margaret seemed in good spirits. She was telling me about a recipe she wanted to try. Gait is stable with her walker. Reviewed medications — all on track. Noted small bruise on left forearm, Linda says she bumped the kitchen counter.", {"medication": "All on track", "physical_activity": "Gait stable with walker", "incidents": "Small bruise on left forearm from bumping kitchen counter"}),
         (-6, "Tom", "Took Mom to the park today. She loved it — was pointing out the birds and even remembered the name of that big oak tree we used to climb as kids. She got tired after about 30 minutes and we headed back. She napped for almost 2 hours after.", {"mood": "Loved the park, engaged and happy", "cognition": "Remembered childhood oak tree", "physical_activity": "Tired after 30 min walk, napped 2 hours", "social": "Enjoyed outing with Tom"}),
         (-5, "Linda", "Margaret was a bit snappy today. She got frustrated when she couldn't find her reading glasses (they were on her head). She also refused to take her afternoon meds at first but eventually took them after I brought her some tea. I think she's just having an off day.", {"mood": "Irritable, frustrated about glasses", "cognition": "Couldn't find glasses that were on her head", "medication": "Initially refused afternoon meds, took them later with tea"}),
         (-4, "Sarah", "Mom called me today which is unusual — she normally doesn't initiate calls. She wanted to tell me about a dream she had about Dad. She sounded a little sad but said talking about it made her feel better. She also asked me to bring her that lavender lotion she likes next time I visit.", {"mood": "Slightly sad, talking about deceased husband", "social": "Initiated phone call to Sarah, which is unusual", "cognition": "Remembered specific lotion preference"}),
-        (-3, "Margaret", "Daily Check-In:\nMental: 6/7\nFeeling: Happy, Hopeful\nPhysical: 5/7\nBody: Normal, Well-Rested\nI talked to Sarah yesterday and it made me feel good. Tom is coming over this weekend. I tried that new recipe for banana bread and it turned out pretty well. Linda helped a little.", {"mood": "Happy and hopeful", "social": "Looking forward to Tom's visit", "meals": "Made banana bread with Linda's help"}),
+        (-3, "Booboo", "Daily Check-In:\nMental: 6/7\nFeeling: Happy, Hopeful\nPhysical: 5/7\nBody: Normal, Well-Rested\nI talked to Sarah yesterday and it made me feel good. Tom is coming over this weekend. I tried that new recipe for banana bread and it turned out pretty well. Linda helped a little.", {"mood": "Happy and hopeful", "social": "Looking forward to Tom's visit", "meals": "Made banana bread with Linda's help"}),
         (-2, "Nurse Rachel", "Margaret in excellent spirits today. BP back to normal at 126/80. She proudly showed me the banana bread she made. Cognitively she seems sharp today — she recalled all her medications by name and knew what each one was for. Left forearm bruise is healing well.", {"medication": "Recalled all medications by name and purpose", "mood": "Excellent spirits, proud of baking", "physical_activity": "Bruise healing well"}),
         (-1, "Linda", "Good day overall. Margaret and I did a jigsaw puzzle together and she was very focused. She did get a little mixed up about whether it was morning or afternoon around 3pm but corrected herself. Ate well — had oatmeal for breakfast, sandwich for lunch, and I made chicken and vegetables for dinner.", {"cognition": "Slight time confusion around 3pm, self-corrected", "social": "Did jigsaw puzzle together, very focused", "meals": "Ate three full meals"}),
         (0, "Tom", "Spent the day with Mom. She was in a great mood and we watched old home movies. She remembered so many details — even the name of our dog from when I was a kid. She did ask where Dad was once, and when I reminded her she got quiet for a minute but then moved on. Overall a really nice day.", {"mood": "Great mood, got quiet when reminded about husband", "cognition": "Strong long-term memories, asked about deceased husband", "social": "Watched home movies together"}),
@@ -159,7 +181,7 @@ else:
 
 print("\nDone! Login credentials:")
 print("  Family circle (Mark):     admin / admin123")
-print("  Demo circle (Margaret):   demo_admin / demo123")
-print("  Demo family:              demo_tom / demo_linda / demo_nurse (all demo123), demo_boobo / baseball")
+print("  Demo circle (Booboo):     demo_admin / demo123")
+print("  Demo family:              demo_tom / demo_linda / demo_nurse (all demo123), demo_booboo / baseball")
 
 db.close()
