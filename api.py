@@ -40,28 +40,44 @@ ensure_journal_public_column()
 _log = logging.getLogger("carelog.api")
 
 
+def sync_demo_booboo_branding(db: Session) -> None:
+    """Force demo patient + circle + journal reporters to Booboo (fixes prod DBs that still say Margaret)."""
+    u = db.query(User).filter(User.username == "demo_booboo").first()
+    if not u:
+        return
+    c = db.query(CareCircle).filter(CareCircle.id == u.circle_id).first()
+    if not c:
+        return
+    dirty = False
+    if u.display_name != "Booboo":
+        u.display_name = "Booboo"
+        dirty = True
+    if c.patient_name != "Booboo":
+        c.patient_name = "Booboo"
+        dirty = True
+    if c.name != "Booboo's Care Circle":
+        c.name = "Booboo's Care Circle"
+        dirty = True
+    n = (
+        db.query(Entry)
+        .filter(Entry.circle_id == c.id, Entry.reporter == "Margaret")
+        .update({"reporter": "Booboo"}, synchronize_session=False)
+    )
+    if n:
+        dirty = True
+    if dirty:
+        db.commit()
+        db.refresh(u)
+        db.refresh(c)
+
+
 def ensure_demo_booboo_branding():
-    """Legacy demo used patient_name/display_name 'Margaret'; rebrand to Booboo for the demo circle."""
+    """Run once at startup (same rules as login-time sync)."""
     from database import SessionLocal
 
     db = SessionLocal()
     try:
-        u = db.query(User).filter(User.username == "demo_booboo").first()
-        if not u:
-            return
-        c = db.query(CareCircle).filter(CareCircle.id == u.circle_id).first()
-        if not c:
-            return
-        if u.display_name == "Margaret":
-            u.display_name = "Booboo"
-        if c.patient_name == "Margaret":
-            c.patient_name = "Booboo"
-            c.name = "Booboo's Care Circle"
-        db.query(Entry).filter(
-            Entry.circle_id == c.id,
-            Entry.reporter == "Margaret",
-        ).update({"reporter": "Booboo"}, synchronize_session=False)
-        db.commit()
+        sync_demo_booboo_branding(db)
     except Exception:
         db.rollback()
         _log.exception("ensure_demo_booboo_branding failed")
@@ -238,6 +254,14 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     if not user.active:
         raise HTTPException(status_code=403, detail="Account deactivated")
 
+    if user.username == "demo_booboo":
+        try:
+            sync_demo_booboo_branding(db)
+        except Exception:
+            db.rollback()
+            _log.exception("sync_demo_booboo_branding on login failed")
+        db.refresh(user)
+
     circle = db.query(CareCircle).filter(CareCircle.id == user.circle_id).first()
 
     token = create_access_token({"sub": user.id})
@@ -250,6 +274,13 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
 @app.get("/api/auth/me")
 def get_me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user.username == "demo_booboo":
+        try:
+            sync_demo_booboo_branding(db)
+        except Exception:
+            db.rollback()
+            _log.exception("sync_demo_booboo_branding on /me failed")
+        db.refresh(user)
     circle = db.query(CareCircle).filter(CareCircle.id == user.circle_id).first()
     return {
         **user_to_dict(user),
