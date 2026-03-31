@@ -8,7 +8,7 @@ from datetime import datetime
 import anthropic
 import json
 
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, or_, text
 
 from database import engine, get_db, Base
 from models import CareCircle, User, Entry, Visit, ChangeLog
@@ -106,6 +106,11 @@ class UpdateUserRequest(BaseModel):
 
 class JournalVisibilityRequest(BaseModel):
     journal_public: bool
+
+
+class ResetPatientDailyCheckinsRequest(BaseModel):
+    username: str
+
 
 class LogEntryRequest(BaseModel):
     raw_text: str
@@ -273,6 +278,47 @@ def set_journal_visibility(
 def list_users(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     users = db.query(User).filter(User.circle_id == admin.circle_id).order_by(User.created_at).all()
     return [user_to_dict(u) for u in users]
+
+
+CHECKIN_PREFIX = "Daily Check-In:"
+
+
+@app.post("/api/admin/reset-patient-daily-checkins")
+def reset_patient_daily_checkins(
+    req: ResetPatientDailyCheckinsRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Hard-delete journal rows that start with 'Daily Check-In:' for a patient in this circle (demo / QA)."""
+    target = db.query(User).filter(
+        User.username == req.username.strip(),
+        User.circle_id == admin.circle_id,
+        User.role == "patient",
+    ).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Patient not found in this care circle")
+    reporter_match = [Entry.reporter == target.display_name]
+    if target.username == "demo_booboo":
+        reporter_match.append(Entry.reporter == "Margaret")
+    n = (
+        db.query(Entry)
+        .filter(
+            Entry.circle_id == target.circle_id,
+            or_(*reporter_match),
+            Entry.raw_text.like(f"{CHECKIN_PREFIX}%"),
+            Entry.deleted_at.is_(None),
+        )
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    log_action(
+        db,
+        "patient_daily_checkins_reset",
+        {"username": target.username, "removed": n},
+        admin,
+    )
+    return {"username": target.username, "removed": n}
+
 
 @app.post("/api/admin/users")
 def create_user(
