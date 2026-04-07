@@ -825,6 +825,229 @@ h3 {
   background: var(--accent);
 }
 
+.journal-entry--checkin::before {
+  background: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(9, 135, 160, 0.2);
+}
+
+.journal-entry--note::before {
+  background: var(--pink);
+  box-shadow: 0 0 0 2px rgba(184, 50, 128, 0.15);
+}
+
+.journal-entry--journal-only::before {
+  background: var(--purple);
+  box-shadow: 0 0 0 2px rgba(107, 70, 193, 0.15);
+}
+
+/* ── Patient journal: Daily Check-In cards ─────────────────── */
+
+.journal-checkin-card {
+  background: linear-gradient(165deg, rgba(9, 135, 160, 0.08) 0%, var(--bg-card) 42%);
+  border: 1px solid rgba(9, 135, 160, 0.22);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.journal-checkin-card-head {
+  margin-bottom: 12px;
+}
+
+.journal-checkin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+
+.journal-checkin-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 520px) {
+  .journal-checkin-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+.journal-checkin-panel {
+  border-radius: var(--radius-md);
+  padding: 12px 12px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.journal-checkin-panel--mental {
+  border-color: rgba(107, 70, 193, 0.22);
+  background: rgba(107, 70, 193, 0.05);
+}
+
+.journal-checkin-panel--physical {
+  border-color: rgba(45, 106, 79, 0.2);
+  background: rgba(45, 106, 79, 0.06);
+}
+
+.journal-checkin-panel-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.55px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+.journal-checkin-scoreline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.journal-checkin-score-num {
+  font-size: 26px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.journal-checkin-score-den {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.journal-checkin-meter {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  min-width: 100px;
+  max-width: 180px;
+}
+
+.journal-checkin-meter-seg {
+  flex: 1;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--border);
+  opacity: 0.7;
+}
+
+.journal-checkin-meter-seg.filled {
+  opacity: 1;
+}
+
+.journal-checkin-panel--mental .journal-checkin-meter-seg.filled {
+  background: var(--purple);
+}
+
+.journal-checkin-panel--physical .journal-checkin-meter-seg.filled {
+  background: var(--green);
+}
+
+.journal-checkin-tagrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.journal-checkin-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid transparent;
+}
+
+.journal-checkin-pill--mental {
+  background: var(--purple-dim);
+  color: var(--purple);
+  border-color: rgba(107, 70, 193, 0.18);
+}
+
+.journal-checkin-pill--physical {
+  background: var(--green-dim);
+  color: var(--green);
+  border-color: rgba(45, 106, 79, 0.2);
+}
+
+.journal-checkin-freenote {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(9, 135, 160, 0.28);
+}
+
+.journal-checkin-freenote-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.journal-checkin-freenote-text {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.journal-checkin-empty-hint {
+  margin: 0 0 8px;
+}
+
+/* Freeform journal / other patient entries */
+
+.journal-note-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.journal-entry--journal-only .journal-note-card {
+  border-color: rgba(107, 70, 193, 0.2);
+  background: linear-gradient(165deg, rgba(107, 70, 193, 0.06) 0%, var(--bg-card) 45%);
+}
+
+.journal-note-card-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.35px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.journal-entry--journal-only .journal-note-card-head {
+  color: var(--purple);
+}
+
+.journal-note-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
 .date-small {
   font-size: 11px;
   color: var(--text-muted);
@@ -972,6 +1195,38 @@ h3 {
   white-space: pre-wrap;
 }
 
+.recap-card .recap-24h-heading {
+  margin-top: 0;
+}
+
+.recap-24h-body {
+  margin-top: 4px;
+}
+
+.recap-24h-loading {
+  margin-top: 4px;
+}
+
+.summary-search-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.summary-search-header-row .summary-date-hint-label {
+  margin-bottom: 0;
+  flex: 1;
+  min-width: 140px;
+}
+
+.length-toggle--inline {
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
 .summary-result {
   margin-top: 12px;
   border-color: rgba(45, 106, 79, 0.15);
@@ -982,6 +1237,34 @@ h3 {
   color: var(--text-secondary);
   line-height: 1.75;
   white-space: pre-wrap;
+}
+
+/* AI responses: **Section titles** render as Thread-style category pills */
+.agent-message-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.75;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+}
+
+.agent-message-body.answer-text {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+}
+
+.agent-message-body .agent-report-tag {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 3px 8px 6px 0;
+  text-transform: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  line-height: 1.35;
+  max-width: 100%;
+  box-sizing: border-box;
+  cursor: default;
 }
 
 .summary-length-badge {
@@ -999,20 +1282,6 @@ h3 {
 
 /* ── Length Toggle ──────────────────────── */
 
-.summary-controls {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.summary-control-group {
-  flex: 1;
-}
-
-.summary-control-btn {
-  flex: 0 0 auto;
-}
-
 .date-filters-sm input {
   max-width: 130px;
   padding: 7px 8px;
@@ -1025,6 +1294,10 @@ h3 {
   padding-top: 16px;
   border-top: 1px solid var(--border);
   box-sizing: border-box;
+}
+
+.recap-card .summary-date-hint-block {
+  margin-top: 20px;
 }
 
 .summary-date-hint-label {
@@ -2405,9 +2678,14 @@ h3 {
     gap: 12px;
   }
 
-  .summary-controls {
+  .summary-search-header-row {
     flex-direction: column;
-    gap: 12px;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .summary-search-header-row .length-toggle {
+    align-self: flex-end;
   }
 
   .summary-date-hint-row {

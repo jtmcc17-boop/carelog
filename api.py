@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta
 import anthropic
 import json
 
@@ -36,6 +36,24 @@ def ensure_journal_public_column():
 
 
 ensure_journal_public_column()
+
+
+def ensure_entry_is_journal_column():
+    try:
+        insp = inspect(engine)
+        cols = [c["name"] for c in insp.get_columns("entries")]
+    except Exception:
+        return
+    if "is_journal" in cols:
+        return
+    with engine.begin() as conn:
+        if engine.dialect.name == "sqlite":
+            conn.execute(text("ALTER TABLE entries ADD COLUMN is_journal BOOLEAN DEFAULT 0 NOT NULL"))
+        else:
+            conn.execute(text("ALTER TABLE entries ADD COLUMN is_journal BOOLEAN DEFAULT false NOT NULL"))
+
+
+ensure_entry_is_journal_column()
 
 _log = logging.getLogger("carelog.api")
 
@@ -130,6 +148,7 @@ class ResetPatientDailyCheckinsRequest(BaseModel):
 
 class LogEntryRequest(BaseModel):
     raw_text: str
+    is_journal: bool = False
 
 class AskQuestion(BaseModel):
     question: str
@@ -138,6 +157,7 @@ class SummaryRequest(BaseModel):
     start_date: str = ""
     end_date: str = ""
     length: str = "long"
+    recap_mode: Optional[str] = None  # e.g. "last_24h"
 
 class VisitProcess(BaseModel):
     transcript: str
@@ -169,6 +189,7 @@ def entry_to_dict(e: Entry) -> dict:
         "reporter": e.reporter,
         "raw_text": e.raw_text,
         "categories": e.categories or {},
+        "is_journal": bool(getattr(e, "is_journal", False)),
     }
 
 def visit_to_dict(v: Visit) -> dict:
@@ -468,6 +489,8 @@ def create_entry(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if req.is_journal and user.role != "patient":
+        raise HTTPException(status_code=400, detail="Only patient accounts can save journal entries")
     patient_name = get_patient_name(db, user)
     reporter_ctx = get_reporter_context(db, user.circle_id, patient_name)
     response = claude.messages.create(
@@ -510,6 +533,7 @@ Respond with ONLY valid JSON, no other text. Example format:
         reporter=user.display_name,
         raw_text=req.raw_text,
         categories=categories,
+        is_journal=req.is_journal,
         created_by=user.id,
     )
     db.add(entry)
@@ -592,12 +616,19 @@ def generate_summary(
 ):
     query = db.query(Entry).filter(Entry.circle_id == user.circle_id, Entry.deleted_at == None)
 
-    if req.start_date and req.end_date:
+    if req.recap_mode == "last_24h":
+        now = datetime.now()
+        start_d = (now - timedelta(hours=24)).date().isoformat()
+        end_d = now.date().isoformat()
+        query = query.filter(Entry.timestamp >= start_d, Entry.timestamp <= end_d)
+    elif req.start_date and req.end_date:
         query = query.filter(Entry.timestamp >= req.start_date, Entry.timestamp <= req.end_date)
 
     entries = query.all()
     entries = filter_entries_for_viewer(entries, user, db)
     if not entries:
+        if req.recap_mode == "last_24h":
+            return {"summary": "No major updates"}
         return {"summary": "No entries found in that date range." if req.start_date else "No entries yet."}
 
     entries_text = ""
@@ -609,6 +640,29 @@ def generate_summary(
 
     patient_name = get_patient_name(db, user)
     reporter_ctx = get_reporter_context(db, user.circle_id, patient_name)
+    if req.recap_mode == "last_24h":
+        system_prompt = f"""{reporter_ctx}You summarize recent care log activity for {patient_name}'s family and care circle.
+
+The entries below are log rows whose event dates fall on calendar days covered by roughly the last 24 hours (as of the server's current time).
+
+Rules:
+- Give only concise highlights (short bullet list or 2-4 tight sentences). Relay who reported what and when. Do not diagnose or use clinical language.
+- If nothing in these entries is worth flagging for the care team or family (no new concerns, incidents, meaningful changes in mood, cognition, sleep, medications, meals, or material disagreements between reporters), respond with EXACTLY this text and nothing else:
+No major updates"""
+        max_tok = 512
+        response = claude.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=max_tok,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": f"Here are the care log entries:\n{entries_text}\n\nProduce the last-24-hour recap following the rules."}
+            ],
+        )
+        text = (response.content[0].text or "").strip()
+        if text.rstrip(".").lower() == "no major updates":
+            text = "No major updates"
+        return {"summary": text}
+
     if req.length == "short":
         system_prompt = f"""{reporter_ctx}You are preparing a brief care summary for a doctor's visit about {patient_name}.
 Your job is to RELAY information, not to diagnose or interpret.

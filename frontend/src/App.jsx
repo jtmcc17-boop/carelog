@@ -23,6 +23,7 @@ import {
   User as UserIcon,
   Heart,
   Info,
+  MessageSquare,
 } from "lucide-react";
 import "./App.css";
 
@@ -112,6 +113,63 @@ function CategoryTag({ category, onClick, active }) {
     <span className={`category-tag clickable ${cls} ${active ? "tag-active" : ""}`} onClick={onClick}>
       {category.replace("_", " ")}
     </span>
+  );
+}
+
+/** Map AI section titles (e.g. **Conflicting mood reports**) to the same palette as Thread category tags. */
+function agentLabelToTagClass(label) {
+  const s = label.toLowerCase().replace(/\s+/g, " ");
+  const tryRules = [
+    { cls: "tag-mood", ok: /\bmood\b|emotional|affect|morale|anxiety|depress|spirit/.test(s) },
+    { cls: "tag-cognition", ok: /\bcognition\b|memory|confus|disorient|forget|foggy|mental clarity|deliri/.test(s) },
+    { cls: "tag-medication", ok: /\bmedication\b|\bmeds?\b|prescription|pill|dose|pharm|compliance/.test(s) },
+    { cls: "tag-meals", ok: /\bmeal\b|food|eat|nutrition|appetite|diet|hydrat/.test(s) },
+    { cls: "tag-physical_activity", ok: /\bphysical\b|mobility|walk|exercise|strength|stiff|ache\b|pain\b|weak/.test(s) },
+    { cls: "tag-sleep", ok: /\bsleep\b|rest|insomnia|nap|tired|fatigue|drowsy/.test(s) },
+    { cls: "tag-incidents", ok: /\bincident\b|fall|accident|injury|urgent|emergency|wander|safety|conflict|contradict|discrepan|\bdiffer\b|notable events?/.test(s) },
+    { cls: "tag-social", ok: /\bsocial\b|visitor|isolat|lonely|\bfamily\b.*\breport|\bcaregiver|\baide\b|nurse|observed by/.test(s) },
+  ];
+  for (const { cls, ok } of tryRules) {
+    if (ok) return cls;
+  }
+  if (/\boverview\b|snapshot|at a glance|highlights?\b/.test(s)) return "tag-medication";
+  if (/\bpatient\b/.test(s) && /report|self|journal|check-?in/.test(s)) return "tag-mood";
+  if (/\bcare\s?circle|team|staff|other reporters?/.test(s)) return "tag-social";
+  return "tag-other";
+}
+
+function parseAgentBoldSegments(text) {
+  const raw = text == null ? "" : String(text);
+  if (!raw) return [];
+  const parts = [];
+  const re = /\*\*([^*]+)\*\*/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    if (m.index > last) parts.push({ kind: "text", value: raw.slice(last, m.index) });
+    parts.push({ kind: "tag", value: m[1].trim() });
+    last = m.index + m[0].length;
+  }
+  if (last < raw.length) parts.push({ kind: "text", value: raw.slice(last) });
+  return parts;
+}
+
+function AgentMessageBody({ text, className }) {
+  const segments = useMemo(() => parseAgentBoldSegments(text), [text]);
+  if (!segments.length) return <div className={className} />;
+
+  return (
+    <div className={`agent-message-body ${className || ""}`.trim()}>
+      {segments.map((seg, i) =>
+        seg.kind === "tag" ? (
+          <span key={i} className={`category-tag agent-report-tag ${agentLabelToTagClass(seg.value)}`}>
+            {seg.value}
+          </span>
+        ) : (
+          <span key={i}>{seg.value}</span>
+        )
+      )}
+    </div>
   );
 }
 
@@ -412,6 +470,9 @@ function MainApp() {
   const [answer, setAnswer] = useState("");
   const [summary, setSummary] = useState("");
   const [summaryLength, setSummaryLength] = useState("long");
+  const [last24hRecap, setLast24hRecap] = useState("");
+  const [last24hRecapLoading, setLast24hRecapLoading] = useState(false);
+  const last24hFetchRef = useRef(0);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [recapDatePhrase, setRecapDatePhrase] = useState("");
@@ -451,6 +512,33 @@ function MainApp() {
 
   const speech = useSpeechRecognition();
   const hdrs = useMemo(() => authHeaders(token), [token]);
+
+  const refreshLast24hRecap = useCallback(async () => {
+    const id = ++last24hFetchRef.current;
+    setLast24hRecapLoading(true);
+    try {
+      const res = await fetch(`${API}/summary`, {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({ recap_mode: "last_24h" }),
+      });
+      const data = await res.json();
+      if (id !== last24hFetchRef.current) return;
+      setLast24hRecap(typeof data.summary === "string" ? data.summary : "No major updates");
+    } catch (err) {
+      console.error(err);
+      if (id !== last24hFetchRef.current) return;
+      setLast24hRecap("Could not load recap.");
+    } finally {
+      if (id === last24hFetchRef.current) setLast24hRecapLoading(false);
+    }
+  }, [hdrs]);
+
+  useEffect(() => {
+    if (tab !== "summary") return undefined;
+    refreshLast24hRecap();
+    return undefined;
+  }, [tab, hdrs, refreshLast24hRecap]);
 
   useEffect(() => {
     let cancelled = false;
@@ -531,14 +619,14 @@ function MainApp() {
 
   // ── Entry Actions ──────────────────────────
 
-  const submitEntry = async (text) => {
+  const submitEntry = async (text, { isJournal = false } = {}) => {
     if (!text.trim()) return;
     setLoading(true);
     try {
       const res = await fetch(`${API}/entries`, {
         method: "POST",
         headers: hdrs,
-        body: JSON.stringify({ raw_text: text }),
+        body: JSON.stringify({ raw_text: text, is_journal: isJournal }),
       });
       const newEntry = await res.json();
       setEntries((prev) => [newEntry, ...prev]);
@@ -556,8 +644,8 @@ function MainApp() {
     } catch (err) { console.error(err); }
   };
 
-  const handleTextareaKeyDown = (e, text) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitEntry(text); }
+  const handleTextareaKeyDown = (e, text, entryOpts) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitEntry(text, entryOpts); }
   };
 
   const toggleTag = (list, setList, tag) => {
@@ -641,7 +729,7 @@ function MainApp() {
         setEndDate(r.end);
         setRecapDateFeedback("");
       } else {
-        setRecapDateFeedback("Could not match that range; using the dates above.");
+        setRecapDateFeedback("Could not match that range; using the full care log.");
       }
     } else {
       setRecapDateFeedback("");
@@ -730,6 +818,7 @@ function MainApp() {
   // ── Computed Data ─────────────────────────
 
   const filteredEntries = entries.filter((e) => {
+    if (e.is_journal) return false;
     if (filterReporters.length > 0 && !filterReporters.includes(e.reporter)) return false;
     if (filterCategory && !(e.categories && filterCategory in e.categories)) return false;
     return true;
@@ -746,7 +835,7 @@ function MainApp() {
     }, {});
 
   const filterCount = filterCategory
-    ? entries.filter((e) => e.categories && filterCategory in e.categories).length
+    ? entries.filter((e) => !e.is_journal && e.categories && filterCategory in e.categories).length
     : 0;
 
   const patientEntries = entries
@@ -798,7 +887,7 @@ function MainApp() {
           <Info size={17} strokeWidth={2.25} />
         </button>
         <div id="journal-privacy-tip" className="journal-privacy-tooltip" role="tooltip">
-          <strong>Shared:</strong> family sees your entries on Thread, Recap, and Ask Questions.
+          <strong>Shared:</strong> family can read your journal in Recap and Ask Questions (not on Thread).
           <strong> Private:</strong> only you can see them.
         </div>
       </div>
@@ -903,7 +992,18 @@ function MainApp() {
         <div className="app-top-shell">
           <nav className="tabs">
             {tabs.map((t) => (
-              <button key={t.id} type="button" className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
+              <button
+                key={t.id}
+                type="button"
+                className={`tab ${tab === t.id ? "active" : ""}`}
+                onClick={() => {
+                  if (t.id === "summary" && tab === "summary") {
+                    refreshLast24hRecap();
+                    return;
+                  }
+                  setTab(t.id);
+                }}
+              >
                 {t.icon} {t.label}
               </button>
             ))}
@@ -1042,9 +1142,9 @@ function MainApp() {
                     {renderJournalPrivacyCluster()}
                   </div>
                 </div>
-                <textarea placeholder="I'm feeling... (Enter to save, Shift+Enter for new line)" value={journalText} onChange={(e) => setJournalText(e.target.value)} onKeyDown={(e) => handleTextareaKeyDown(e, journalText)} rows={4} />
+                <textarea placeholder="I'm feeling... (Enter to save, Shift+Enter for new line)" value={journalText} onChange={(e) => setJournalText(e.target.value)} onKeyDown={(e) => handleTextareaKeyDown(e, journalText, { isJournal: true })} rows={4} />
                 <div className="form-actions form-actions-journal-pair">
-                  <button type="button" className="btn-primary btn-journal-action-size" onClick={() => submitEntry(journalText)} disabled={loading}>
+                  <button type="button" className="btn-primary btn-journal-action-size" onClick={() => submitEntry(journalText, { isJournal: true })} disabled={loading}>
                     {loading ? <Loader2 size={18} className="spin" /> : <Send size={18} strokeWidth={2.25} />}
                     Save to Journal
                   </button>
@@ -1114,12 +1214,7 @@ function MainApp() {
               ) : patientEntries.length === 0 ? (
                 <p className="hint">No journal entries yet.</p>
               ) : (
-                patientEntries.map((e, i) => (
-                  <div key={e.id || i} className="journal-entry">
-                    <p className="date-small">{formatDate(e.timestamp.slice(0, 10))}</p>
-                    <p className="entry-text">{e.raw_text}</p>
-                  </div>
-                ))
+                patientEntries.map((e, i) => <PatientJournalListItem key={e.id || i} entry={e} />)
               )}
             </div>
           </div>
@@ -1196,7 +1291,7 @@ function MainApp() {
                   <p className="hint">{pendingVisitData.doctor_name} &middot; {pendingVisitData.date}</p>
                   <div className="visit-takeaways">
                     <p className="form-label">Key Takeaways</p>
-                    <div className="answer-text">{pendingVisitData.key_takeaways}</div>
+                    <AgentMessageBody text={pendingVisitData.key_takeaways} className="answer-text" />
                   </div>
                   <div className="form-actions">
                     <button className="btn-primary" onClick={startNewVisit}><Plus size={14} /> Record another visit</button>
@@ -1223,7 +1318,7 @@ function MainApp() {
                   </div>
                   {expandedVisit === v.id && (
                     <div className="visit-card-body">
-                      {v.key_takeaways && <div className="visit-takeaways"><p className="form-label">Key Takeaways</p><div className="answer-text">{v.key_takeaways}</div></div>}
+                      {v.key_takeaways && <div className="visit-takeaways"><p className="form-label">Key Takeaways</p><AgentMessageBody text={v.key_takeaways} className="answer-text" /></div>}
                       <div className="visit-transcript-section"><p className="form-label">Full Transcript</p><div className="visit-transcript-text">{v.transcript}</div></div>
                     </div>
                   )}
@@ -1236,26 +1331,23 @@ function MainApp() {
         {/* ── Summary ──────────────────────── */}
         {tab === "summary" && (
           <div>
-            <div className="card">
-              <div className="summary-controls">
-                <div className="summary-control-group">
-                  <p className="form-label">Date range (optional)</p>
-                  <div className="date-filters date-filters-sm">
-                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                    <span className="date-separator">to</span>
-                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                  </div>
-                </div>
-                <div className="summary-control-group">
-                  <p className="form-label">Length</p>
-                  <div className="length-toggle">
+            <div className="card recap-card">
+              <h3 className="section-title recap-24h-heading">24 Hour Recap</h3>
+              {last24hRecapLoading ? (
+                <p className="hint journal-entries-loading recap-24h-loading" aria-busy="true" aria-live="polite">
+                  <Loader2 size={16} className="spin" aria-hidden /> Loading…
+                </p>
+              ) : (
+                <AgentMessageBody text={last24hRecap} className="summary-text recap-24h-body" />
+              )}
+              <div className="summary-date-hint-block">
+                <div className="summary-search-header-row">
+                  <p className="form-label summary-date-hint-label">Search Specific Date Range</p>
+                  <div className="length-toggle length-toggle--inline">
                     <button type="button" className={`length-btn ${summaryLength === "short" ? "active" : ""}`} onClick={() => setSummaryLength("short")}>Short</button>
                     <button type="button" className={`length-btn ${summaryLength === "long" ? "active" : ""}`} onClick={() => setSummaryLength("long")}>Detailed</button>
                   </div>
                 </div>
-              </div>
-              <div className="summary-date-hint-block">
-                <p className="form-label summary-date-hint-label">Or describe the range</p>
                 <div className="summary-date-hint-row">
                   <input
                     type="text"
@@ -1281,7 +1373,7 @@ function MainApp() {
             {summary && (
               <div className="card summary-result">
                 <div className="answer-header"><div className="answer-icon">AI</div><span className="answer-label">Doctor Summary<span className="summary-length-badge">{summaryLength === "short" ? "quick" : "detailed"}</span></span></div>
-                <div className="summary-text">{summary}</div>
+                <AgentMessageBody text={summary} className="summary-text" />
               </div>
             )}
           </div>
@@ -1306,7 +1398,7 @@ function MainApp() {
             {answer && (
               <div className="card answer-card">
                 <div className="answer-header"><div className="answer-icon">AI</div><span className="answer-label">Answer</span></div>
-                <div className="answer-text">{answer}</div>
+                <AgentMessageBody text={answer} className="answer-text" />
               </div>
             )}
           </div>
@@ -1482,6 +1574,189 @@ function MainApp() {
 function formatDate(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
   return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
+const DAILY_CHECKIN_PREFIX = "Daily Check-In:";
+
+/** Parse structured Daily Check-In or Quick Check-In body; null = show as freeform entry. */
+function tryParseCheckInPayload(raw) {
+  if (raw == null || typeof raw !== "string") return null;
+  const t = raw.trim();
+  let body = "";
+
+  if (t.startsWith(DAILY_CHECKIN_PREFIX)) {
+    body = t.slice(DAILY_CHECKIN_PREFIX.length).trim();
+  } else if (/^Mental:\s*\d+\s*\/\s*7/im.test(t) || /^Physical:\s*\d+\s*\/\s*7/im.test(t)) {
+    body = t;
+  } else {
+    return null;
+  }
+
+  const lines = body.split("\n").map((l) => l.trim()).filter(Boolean);
+  const data = {
+    mental: null,
+    feelingTags: [],
+    physical: null,
+    bodyTags: [],
+    freeNote: "",
+  };
+  const orphanLines = [];
+
+  for (const line of lines) {
+    let m = line.match(/^Mental:\s*(\d+)\s*\/\s*7$/i);
+    if (m) {
+      data.mental = Math.min(7, Math.max(1, parseInt(m[1], 10)));
+      continue;
+    }
+    m = line.match(/^Feeling:\s*(.+)$/i);
+    if (m) {
+      data.feelingTags = m[1].split(",").map((s) => s.trim()).filter(Boolean);
+      continue;
+    }
+    m = line.match(/^Physical:\s*(\d+)\s*\/\s*7$/i);
+    if (m) {
+      data.physical = Math.min(7, Math.max(1, parseInt(m[1], 10)));
+      continue;
+    }
+    m = line.match(/^Body:\s*(.+)$/i);
+    if (m) {
+      data.bodyTags = m[1].split(",").map((s) => s.trim()).filter(Boolean);
+      continue;
+    }
+    orphanLines.push(line);
+  }
+
+  data.freeNote = orphanLines.join("\n").trim();
+
+  if (t.startsWith(DAILY_CHECKIN_PREFIX)) {
+    const hasScores =
+      data.mental != null ||
+      data.physical != null ||
+      data.feelingTags.length > 0 ||
+      data.bodyTags.length > 0;
+    if (hasScores || data.freeNote) return data;
+    return { ...data, freeNote: "" };
+  }
+
+  if (data.mental != null || data.physical != null) return data;
+  return null;
+}
+
+function CheckInMeter({ value }) {
+  if (value == null) return null;
+  return (
+    <div className="journal-checkin-meter" aria-hidden>
+      {Array.from({ length: 7 }, (_, i) => (
+        <span key={i} className={`journal-checkin-meter-seg ${i < value ? "filled" : ""}`} />
+      ))}
+    </div>
+  );
+}
+
+function PatientJournalListItem({ entry }) {
+  const checkin = tryParseCheckInPayload(entry.raw_text);
+  const dateStr = formatDate(entry.timestamp.slice(0, 10));
+
+  if (checkin) {
+    const hasScores =
+      checkin.mental != null ||
+      checkin.physical != null ||
+      checkin.feelingTags.length > 0 ||
+      checkin.bodyTags.length > 0;
+    const showMentalPanel = checkin.mental != null || checkin.feelingTags.length > 0;
+    const showPhysicalPanel = checkin.physical != null || checkin.bodyTags.length > 0;
+
+    return (
+      <div className="journal-entry journal-entry--checkin">
+        <p className="date-small">{dateStr}</p>
+        <div className="journal-checkin-card">
+          <div className="journal-checkin-card-head">
+            <div className="journal-checkin-badge">
+              <ClipboardList size={15} strokeWidth={2.25} aria-hidden />
+              <span>Daily Check-In</span>
+            </div>
+          </div>
+          {hasScores ? (
+            <div className="journal-checkin-panels">
+              {showMentalPanel && (
+                <div className="journal-checkin-panel journal-checkin-panel--mental">
+                  <p className="journal-checkin-panel-label">Mental</p>
+                  {checkin.mental != null && (
+                    <div className="journal-checkin-scoreline">
+                      <span className="journal-checkin-score-num">{checkin.mental}</span>
+                      <span className="journal-checkin-score-den">/7</span>
+                      <CheckInMeter value={checkin.mental} />
+                    </div>
+                  )}
+                  {checkin.feelingTags.length > 0 && (
+                    <div className="journal-checkin-tagrow">
+                      {checkin.feelingTags.map((tag) => (
+                        <span key={tag} className="journal-checkin-pill journal-checkin-pill--mental">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {showPhysicalPanel && (
+                <div className="journal-checkin-panel journal-checkin-panel--physical">
+                  <p className="journal-checkin-panel-label">Physical</p>
+                  {checkin.physical != null && (
+                    <div className="journal-checkin-scoreline">
+                      <span className="journal-checkin-score-num">{checkin.physical}</span>
+                      <span className="journal-checkin-score-den">/7</span>
+                      <CheckInMeter value={checkin.physical} />
+                    </div>
+                  )}
+                  {checkin.bodyTags.length > 0 && (
+                    <div className="journal-checkin-tagrow">
+                      {checkin.bodyTags.map((tag) => (
+                        <span key={tag} className="journal-checkin-pill journal-checkin-pill--physical">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : !checkin.freeNote ? (
+            <p className="hint journal-checkin-empty-hint">Check-in saved without ratings.</p>
+          ) : null}
+          {checkin.freeNote ? (
+            <div className="journal-checkin-freenote">
+              <span className="journal-checkin-freenote-label">Also noted</span>
+              <p className="journal-checkin-freenote-text">{checkin.freeNote}</p>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  const journalNote = entry.is_journal === true;
+  return (
+    <div className={`journal-entry journal-entry--note ${journalNote ? "journal-entry--journal-only" : ""}`}>
+      <p className="date-small">{dateStr}</p>
+      <div className="journal-note-card">
+        <div className="journal-note-card-head">
+          {journalNote ? (
+            <>
+              <BookHeart size={15} strokeWidth={2.25} aria-hidden />
+              <span>Journal note</span>
+            </>
+          ) : (
+            <>
+              <MessageSquare size={15} strokeWidth={2.25} aria-hidden />
+              <span>Entry</span>
+            </>
+          )}
+        </div>
+        <p className="journal-note-body">{entry.raw_text}</p>
+      </div>
+    </div>
+  );
 }
 
 export default App;

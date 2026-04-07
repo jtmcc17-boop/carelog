@@ -36,6 +36,7 @@ class Entry(Base):
     reporter = Column(String(100), nullable=False)
     raw_text = Column(Text, nullable=False)
     categories = Column(JSON, default={})
+    is_journal = Column(Boolean, nullable=False, default=False)
     created_by = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     deleted_at = Column(DateTime(timezone=True), nullable=True)
