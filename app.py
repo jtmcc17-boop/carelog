@@ -2,7 +2,7 @@ import streamlit as st
 import anthropic
 import json
 from datetime import datetime
-from rag import add_entry_to_db, search_entries, rebuild_db, get_entry_count
+from rag import add_entry, search_entries, rebuild_from_rows, get_entry_count
 
 client = anthropic.Anthropic()
 LOG_FILE = "care_entries.json"
@@ -135,7 +135,14 @@ with tab2:
                 }
                 entries.append(entry)
                 save_entries(entries)
-                add_entry_to_db(entry, len(entries) - 1)
+                add_entry(
+                    entry_id=len(entries) - 1,
+                    circle_id=0,
+                    reporter=entry["reporter"],
+                    timestamp=entry["timestamp"],
+                    raw_text=entry["raw_text"],
+                    categories=entry["categories"],
+                )
                 st.success("Journal entry saved!")
                 st.session_state.journal_counter += 1
                 st.rerun()
@@ -185,7 +192,7 @@ with tab4:
             st.warning("No entries to search.")
         elif question:
             with st.spinner("Searching relevant entries..."):
-                relevant = search_entries(question, n_results=10)
+                relevant = search_entries(question, circle_id=0, n_results=10)
 
                 if not relevant:
                     st.warning("No relevant entries found.")

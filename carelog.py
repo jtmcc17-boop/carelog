@@ -1,6 +1,6 @@
 import anthropic
 import json
-from rag import add_entry_to_db, search_entries, rebuild_db, get_entry_count
+from rag import add_entry, search_entries, rebuild_from_rows, get_entry_count
 from datetime import datetime
 
 client = anthropic.Anthropic()
@@ -87,7 +87,14 @@ while True:
 
         entries.append(entry)
         save_entries(entries)
-        add_entry_to_db(entry, len(entries) - 1)
+        add_entry(
+            entry_id=len(entries) - 1,
+            circle_id=0,
+            reporter=entry["reporter"],
+            timestamp=entry["timestamp"],
+            raw_text=entry["raw_text"],
+            categories=entry["categories"],
+        )
 
         print(f"\nEntry saved! Parsed into these categories:")
         for cat, detail in categories.items():
@@ -140,7 +147,7 @@ Be factual. Cite who reported what and when. Do not speculate beyond what the en
         else:
             question = input("What do you want to know? ")
             print("\nSearching relevant entries...")
-            relevant = search_entries(question)
+            relevant = search_entries(question, circle_id=0)
 
             if not relevant:
                 print("No relevant entries found.\n")
@@ -166,7 +173,12 @@ medical accuracy.""",
                 print(f"\n{response.content[0].text}\n")
 
     elif command == "rebuild":
-        rebuild_db(entries)
+        rebuild_from_rows([
+            {"id": i, "circle_id": 0, "reporter": e["reporter"],
+             "timestamp": e["timestamp"], "raw_text": e["raw_text"],
+             "categories": e["categories"]}
+            for i, e in enumerate(entries)
+        ])
         print()
     else:
             print("Commands: log, view, summary, ask, rebuild, quit\n")

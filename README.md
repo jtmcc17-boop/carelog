@@ -13,7 +13,7 @@ Family members who try to correct the record in the room face an uncomfortable s
 
 ## How It Works
 
-CareLog is a full-stack web application powered by Claude (Anthropic's AI). Each member of a care circle — the patient, their family, and their professional caregivers — logs in and contributes to a shared record.
+CareLog is a full-stack web application (FastAPI + React) powered by Claude (Anthropic's AI) with a RAG pipeline backed by ChromaDB.
 
 ### Natural Language Logging
 Caregivers describe what happened in plain language. No forms, no dropdowns. Claude automatically parses entries into structured categories (mood, cognition, medication, meals, sleep, incidents, etc.) and extracts the correct date — even from entries like "last Tuesday Dad had a fall."
@@ -24,14 +24,14 @@ Each entry is tagged with who reported it and when. The patient's own self-repor
 ### Patient Journal
 The patient gets their own private space to record how they're feeling in their own words. Journal visibility is controlled by the patient — they can choose to share entries with their care circle or keep them private.
 
+### RAG-Powered Q&A
+When a user asks a question, semantically relevant entries are retrieved from a ChromaDB vector store — not the entire log. Only those entries are passed to Claude for synthesis, enabling the system to scale beyond context window limits.
+
 ### Doctor Visit Summaries
 Generate structured briefings for doctor appointments that highlight patterns and discrepancies across reporters. Summaries are available in two lengths: a quick paragraph for a busy appointment or a detailed section-by-section briefing.
 
 ### Doctor Visit Processing
 After an appointment, paste in your notes or transcript. Claude extracts the doctor's name, date, key takeaways, and medication changes — building a searchable history of visits over time.
-
-### AI-Powered Q&A
-Ask questions like "Where do Dad's self-reports differ from what others observed?" and get a synthesized answer citing who said what and when.
 
 ## Why This Matters
 
@@ -56,20 +56,28 @@ This changes the quality of a 15-minute appointment dramatically.
 - **Frontend**: React 19 with Vite
 - **Database**: PostgreSQL via SQLAlchemy (SQLite for local dev)
 - **Auth**: JWT-based authentication with role-based access (admin, caregiver, patient)
-- **RAG**: ChromaDB vector database for semantic search over care entries (used in Streamlit prototype; the production web app queries the SQL database directly within Claude's context window)
+- **RAG**: ChromaDB vector database for semantic search over care entries
 
 ## Architecture
 
 ```
-React Frontend (login, care log, journal, summaries, visits, admin)
+React Frontend (Vite)
     |
     v
 FastAPI Backend (JWT auth, role-based access)
     |
     ├── Claude API (parse entries, generate summaries, answer questions, process visits)
     |
-    └── PostgreSQL / SQLAlchemy (entries, users, care circles, visits, changelog)
+    ├── SQLAlchemy + SQLite/Postgres (entries, users, care circles, visits, changelog)
+    |
+    ├── ChromaDB Vector Store (semantic embeddings for RAG retrieval)
+    |       |
+    |       └── On query: semantic search → retrieve relevant entries → Claude synthesis
+    |
+    └── Auth (JWT tokens, role-based access, care circle scoping)
 ```
+
+**Dual storage strategy**: Entries are stored relationally (SQL) for CRUD, filtering, and access control. They are simultaneously indexed in ChromaDB as vector embeddings. The Ask feature queries ChromaDB for semantically relevant entries, applies privacy filtering against SQL, then passes only the relevant subset to Claude — not the entire log.
 
 ### Care Circle Model
 
@@ -93,10 +101,6 @@ Each deployment centers around a **care circle** — one patient and the people 
 ```bash
 git clone https://github.com/jtmcc17-boop/carelog.git
 cd carelog
-
-# Backend
-python3 -m venv venv
-source venv/bin/activate
 pip install -r requirements.txt
 export ANTHROPIC_API_KEY="your-api-key"
 
@@ -105,31 +109,63 @@ cd frontend
 npm install
 ```
 
-### Run
+### Seed the database
 
 ```bash
-# Terminal 1: Backend
-source venv/bin/activate
-uvicorn api:app --reload
+python3 seed.py
+```
 
-# Terminal 2: Frontend
+This creates two care circles with demo data:
+- **Family circle (Mark)**: `admin` / `admin123`
+- **Demo circle (Booboo)**: `demo_admin` / `demo123`, plus family members (`demo_tom`, `demo_linda`, `demo_nurse` — all `demo123`) and patient (`demo_booboo` / `baseball`)
+
+### Run
+
+**Backend:**
+```bash
+python3 -m uvicorn api:app --reload
+```
+
+**Frontend:**
+```bash
 cd frontend
 npm run dev
 ```
 
-## What's Next
+### Index existing entries into ChromaDB
 
-- [ ] Pattern detection: automatic alerts for trends (increasing confusion, missed medications)
-- [ ] Voice input for hands-free logging
-- [ ] Multi-care-circle support per account
-- [ ] Export summaries as PDF for doctor visits
-- [ ] Push notifications for care circle updates
+After seeding (or if you have existing SQL data), rebuild the RAG index by calling:
+
+```bash
+curl -X POST http://localhost:8000/api/admin/rebuild-rag \
+  -H "Authorization: Bearer <your-admin-jwt>"
+```
+
+New entries are automatically indexed on creation.
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/auth/login` | POST | Authenticate and receive JWT |
+| `/api/auth/me` | GET | Current user info |
+| `/api/entries` | GET | List entries for your care circle |
+| `/api/entries` | POST | Log a new entry (auto-parsed by AI, indexed in ChromaDB) |
+| `/api/entries/{id}` | DELETE | Soft-delete an entry (admin only) |
+| `/api/ask` | POST | Ask a question — uses RAG semantic search |
+| `/api/summary` | POST | Generate a doctor visit summary |
+| `/api/visits` | GET/POST | List or save doctor visits |
+| `/api/visits/process` | POST | AI-process a visit transcript |
+| `/api/admin/users` | GET/POST | List or create users (admin only) |
+| `/api/admin/users/{id}` | PATCH/DELETE | Update or deactivate users (admin only) |
+| `/api/admin/changelog` | GET | View audit log (admin only) |
+| `/api/admin/rebuild-rag` | POST | Re-index all entries into ChromaDB (admin only) |
 
 ## Background
 
 This project was born from personal experience caring for a family member with dementia. The core problem — that patients can be confidently wrong about their own condition, and the social dynamics of caregiving make it hard for family to correct the record — is one that existing tools don't address.
 
-Built as part of a 90-day AI Product Management development plan, focusing on the Anthropic SDK and practical AI applications for underserved users.
+Built as part of a 90-day AI Product Management development plan, focusing on the Anthropic SDK, RAG pipelines, and practical AI applications for underserved users.
 
 ## License
 

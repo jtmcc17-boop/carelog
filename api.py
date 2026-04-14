@@ -12,6 +12,7 @@ from sqlalchemy import inspect, or_, text
 
 from database import engine, get_db, Base
 from models import CareCircle, User, Entry, Visit, ChangeLog
+from rag import add_entry as rag_add_entry, search_entries as rag_search, rebuild_from_rows as rag_rebuild
 from auth import (
     hash_password, verify_password, create_access_token,
     get_current_user, require_admin,
@@ -540,6 +541,15 @@ Respond with ONLY valid JSON, no other text. Example format:
     db.commit()
     db.refresh(entry)
 
+    rag_add_entry(
+        entry_id=entry.id,
+        circle_id=entry.circle_id,
+        reporter=entry.reporter,
+        timestamp=entry.timestamp,
+        raw_text=entry.raw_text,
+        categories=entry.categories or {},
+    )
+
     log_action(db, "entry_created", {
         "entry_id": entry.id,
         "reporter": user.display_name,
@@ -578,16 +588,40 @@ def ask_question(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    entries = db.query(Entry).filter(Entry.circle_id == user.circle_id, Entry.deleted_at == None).all()
-    entries = filter_entries_for_viewer(entries, user, db)
-    if not entries:
+    relevant = rag_search(req.question, circle_id=user.circle_id, n_results=15)
+
+    if not relevant:
+        return {"answer": "No entries yet."}
+
+    private_author_ids = {
+        u.id
+        for u in db.query(User).filter(
+            User.circle_id == user.circle_id,
+            User.role == "patient",
+        ).all()
+        if getattr(u, "journal_public", True) is False
+    }
+
+    if private_author_ids:
+        entry_ids = [r["entry_id"] for r in relevant]
+        private_entry_ids = {
+            e.id
+            for e in db.query(Entry).filter(
+                Entry.id.in_(entry_ids),
+                Entry.created_by.in_(private_author_ids),
+            ).all()
+            if e.created_by != user.id
+        }
+        relevant = [r for r in relevant if r["entry_id"] not in private_entry_ids]
+
+    if not relevant:
         return {"answer": "No entries yet."}
 
     entries_text = ""
-    for e in entries:
-        entries_text += f"\n[{e.timestamp}] {e.reporter}:\n"
-        entries_text += f"  Raw: {e.raw_text}\n"
-        for cat, detail in (e.categories or {}).items():
+    for e in relevant:
+        entries_text += f"\n[{e['timestamp']}] {e['reporter']}:\n"
+        entries_text += f"  Raw: {e['raw_text']}\n"
+        for cat, detail in (e["categories"] or {}).items():
             entries_text += f"  {cat}: {detail}\n"
 
     patient_name = get_patient_name(db, user)
@@ -596,17 +630,20 @@ def ask_question(
         model="claude-sonnet-4-20250514",
         max_tokens=1024,
         system=f"""You are a care log assistant for a patient named {patient_name}. You answer questions based ONLY on the
-log entries provided. Always note who reported what and when. If perspectives
-conflict, highlight the difference — don't pick a side. This is important for
-medical accuracy.
+log entries provided. These entries were retrieved via semantic search from a vector database — they are the most
+relevant entries to the user's question, not the full log. Always note who reported what and when. If perspectives
+conflict, highlight the difference — don't pick a side. This is important for medical accuracy.
 
 {reporter_ctx}""",
         messages=[
-            {"role": "user", "content": f"Here are the care log entries:\n{entries_text}\n\nQuestion: {req.question}"}
+            {"role": "user", "content": f"Here are the relevant care log entries (retrieved via semantic search):\n{entries_text}\n\nQuestion: {req.question}"}
         ]
     )
 
-    return {"answer": response.content[0].text}
+    return {
+        "answer": response.content[0].text,
+        "sources_used": len(relevant),
+    }
 
 @app.post("/api/summary")
 def generate_summary(
@@ -812,3 +849,23 @@ def migrate_json_data(admin: User = Depends(require_admin), db: Session = Depend
     db.commit()
     log_action(db, "data_migrated", imported, admin)
     return imported
+
+
+@app.post("/api/admin/rebuild-rag")
+def rebuild_rag(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Re-index all non-deleted entries into the ChromaDB vector store."""
+    entries = db.query(Entry).filter(Entry.deleted_at == None).all()
+    rows = [
+        {
+            "id": e.id,
+            "circle_id": e.circle_id,
+            "reporter": e.reporter,
+            "timestamp": e.timestamp,
+            "raw_text": e.raw_text,
+            "categories": e.categories or {},
+        }
+        for e in entries
+    ]
+    count = rag_rebuild(rows)
+    log_action(db, "rag_rebuilt", {"entries_indexed": count}, admin)
+    return {"entries_indexed": count}

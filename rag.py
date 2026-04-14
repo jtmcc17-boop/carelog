@@ -1,60 +1,73 @@
 import chromadb
 import json
 
-# Create the vector database (stored locally in a folder)
 chroma_client = chromadb.PersistentClient(path="./carelog_db")
-
-# Create or get the collection for care entries
 collection = chroma_client.get_or_create_collection(name="care_entries")
 
-def add_entry_to_db(entry, entry_id):
-    """Store a care entry as a searchable embedding."""
-    # Combine all the entry info into one searchable text
-    text = f"{entry['reporter']} reported on {entry['timestamp']}: {entry['raw_text']}"
-    for cat, detail in entry['categories'].items():
+
+def add_entry(entry_id: int, circle_id: int, reporter: str, timestamp: str,
+              raw_text: str, categories: dict):
+    """Store a care entry as a searchable embedding, scoped to a care circle."""
+    text = f"{reporter} reported on {timestamp}: {raw_text}"
+    for cat, detail in categories.items():
         text += f" [{cat}: {detail}]"
 
     collection.upsert(
         documents=[text],
         metadatas=[{
-            "reporter": entry['reporter'],
-            "timestamp": entry['timestamp'],
-            "raw_text": entry['raw_text'],
-            "categories": json.dumps(entry['categories'])
+            "circle_id": circle_id,
+            "entry_id": entry_id,
+            "reporter": reporter,
+            "timestamp": timestamp,
+            "raw_text": raw_text,
+            "categories": json.dumps(categories),
         }],
-        ids=[str(entry_id)]
+        ids=[str(entry_id)],
     )
 
-def search_entries(query, n_results=5):
-    """Find the most relevant entries for a question."""
+
+def search_entries(query: str, circle_id: int, n_results: int = 10) -> list[dict]:
+    """Semantic search scoped to a single care circle."""
     results = collection.query(
         query_texts=[query],
-        n_results=n_results
+        n_results=n_results,
+        where={"circle_id": circle_id},
     )
 
     entries = []
-    if results and results['metadatas']:
-        for meta in results['metadatas'][0]:
+    if results and results["metadatas"]:
+        for meta in results["metadatas"][0]:
             entries.append({
-                "reporter": meta['reporter'],
-                "timestamp": meta['timestamp'],
-                "raw_text": meta['raw_text'],
-                "categories": json.loads(meta['categories'])
+                "entry_id": meta["entry_id"],
+                "reporter": meta["reporter"],
+                "timestamp": meta["timestamp"],
+                "raw_text": meta["raw_text"],
+                "categories": json.loads(meta["categories"]),
             })
     return entries
 
-def rebuild_db(entries):
-    """Rebuild the entire database from the JSON file."""
-    # Clear existing data
+
+def rebuild_from_rows(rows: list[dict]):
+    """Rebuild the vector store from a list of SQL-sourced entry dicts.
+
+    Each dict must have: id, circle_id, reporter, timestamp, raw_text, categories.
+    """
     existing = collection.get()
-    if existing['ids']:
-        collection.delete(ids=existing['ids'])
+    if existing["ids"]:
+        collection.delete(ids=existing["ids"])
 
-    # Add all entries
-    for i, entry in enumerate(entries):
-        add_entry_to_db(entry, i)
-    print(f"Database rebuilt with {len(entries)} entries.")
+    for row in rows:
+        add_entry(
+            entry_id=row["id"],
+            circle_id=row["circle_id"],
+            reporter=row["reporter"],
+            timestamp=row["timestamp"],
+            raw_text=row["raw_text"],
+            categories=row["categories"] or {},
+        )
+    return len(rows)
 
-def get_entry_count():
+
+def get_entry_count() -> int:
     """How many entries are in the vector database."""
     return collection.count()
