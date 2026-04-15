@@ -98,7 +98,7 @@ Each deployment centers around a **care circle** — one patient and the people 
 ### Installation
 
 ```bash
-git clone https://github.com/jtmcc17-boop/carelog.git
+git clone https://github.com/jtmcc99/carelog.git
 cd carelog
 pip install -r requirements.txt
 export ANTHROPIC_API_KEY="your-api-key"
